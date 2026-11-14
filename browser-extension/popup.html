@@ -9,10 +9,10 @@
 <body>
   <main>
     <header><span class="mark">π</span><div><h1>Browser Connect</h1><p>One tab. Your permission.</p></div></header>
-    <section aria-label="Connection"><span id="badge" class="badge">Not connected</span><p id="status" role="status">Checking connection…</p></section>
+    <section id="connection" aria-label="Connection"><span id="badge" class="badge">Not connected</span><p id="status" role="status">Checking connection…</p></section>
     <section id="pairing" hidden>
       <h2>Compare with Pi</h2><p id="session"></p><strong id="code" class="code"></strong>
-      <p class="hint">Only continue if this code matches the one in your Pi terminal.</p>
+      <p class="hint">Match this code with Pi. Sharing exposes page text and unredacted screenshots to your model provider.</p>
     </section>
     <section id="target" hidden><h2>Tab to share</h2><p id="title"></p><p id="origin" class="origin"></p></section>
     <p class="warning">Sharing lets the agent read this page and act as you. Page text and unredacted screenshots can reach your model provider. Pi asks before clicks, typing, keypresses, and navigation.</p>

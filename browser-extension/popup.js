@@ -7,6 +7,7 @@ async function render(state) {
   current = state;
   [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const shared = Boolean(state.shared);
+  document.body.classList.toggle('pending', Boolean(state.session) && !shared);
   $('badge').textContent = shared ? 'Tab shared' : state.session ? 'Awaiting your permission' : state.ready ? 'Bridge ready' : 'Not connected';
   $('badge').classList.toggle('active', shared);
   $('status').textContent = shared ? 'Session: ' + state.session.label + '. Disconnect at any time.' : state.session ? 'Verify the session below before sharing.' : state.ready ? 'Run /browser-connect connect in Pi, then refresh here.' : 'Start the bridge after completing setup below.';

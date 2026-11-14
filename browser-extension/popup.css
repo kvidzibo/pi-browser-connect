@@ -26,4 +26,5 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 details { font-size: 12px; color: #aab4c5; margin-top: 16px; }
 summary { cursor: pointer; }
 code { white-space: normal; overflow-wrap: anywhere; color: #d2def1; font-size: 11px; }
+.pending #connection, .pending .warning { display: none; }
 [hidden] { display: none !important; }
