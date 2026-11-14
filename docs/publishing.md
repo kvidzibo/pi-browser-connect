@@ -33,11 +33,16 @@ Do not mark bootstrap complete until a workflow has actually published a subsequ
 
 ## Subsequent releases
 
-1. Bump `package.json`, `package-lock.json`, and `browser-extension/manifest.json` together; update `CHANGELOG.md`.
+1. Version only affected components; update `CHANGELOG.md`:
+   - Bump `package.json` and its matching `package-lock.json` metadata for npm package changes, following semver.
+   - Bump `browser-extension/manifest.json` only when browser-extension code, assets, permissions, or behavior changes. Pi-only or native-host-only changes leave its version unchanged.
+   - Browser-extension changes also require an npm package bump because the package includes the extension. The two component versions need not match.
 2. Validate and review the PR; merge it manually.
 3. The publish workflow runs the reusable test workflow, publishes a missing npm version with provenance, and creates a GitHub release with an unpacked browser-extension ZIP.
 
-Only an npm `E404` permits a new publication; auth/network errors fail the workflow. Existing npm versions are never overwritten. Use stable semver versions compatible with Chrome's numeric manifest version format.
+Only an npm `E404` permits a new publication; auth/network errors fail the workflow. Existing npm versions are never overwritten. Use stable semver for the npm package and Chrome-compatible numeric versions for the browser manifest.
+
+GitHub release tags and ZIP filenames use the npm package version; the bundled browser manifest retains its independent version.
 
 The ZIP is for **Load unpacked** after extraction, not automatic Chrome Web Store distribution. Browser-store publishing would need a separate developer account and explicit approval.
 

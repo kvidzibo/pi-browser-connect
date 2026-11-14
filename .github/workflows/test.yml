@@ -22,7 +22,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       - run: npm test
-      - name: Check release versions
+      - name: Check npm lockfile version
         run: |
           node --input-type=module -e "
             import fs from 'node:fs';
@@ -31,7 +31,6 @@ jobs:
             const version = read('package.json').version;
             assert.equal(read('package-lock.json').version, version);
             assert.equal(read('package-lock.json').packages[''].version, version);
-            assert.equal(read('browser-extension/manifest.json').version, version);
           "
       - run: npm pack --dry-run
   browser:
