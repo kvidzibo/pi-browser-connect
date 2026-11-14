@@ -62,7 +62,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await assert.rejects(call({ action: 'snapshot' }), /Not connected/);
   const connecting = command('', ctx);
   t.after(async () => { await command('disconnect', ctx); await connecting; });
-  await eventually(async () => notices.some(message => message.includes(extensionPath)));
+  // Pi replaces consecutive info notices; setup instructions and waiting status must stay together.
+  await eventually(async () => notices.some(message => message.includes(extensionPath) && message.includes('Waiting up to')));
   const registration = JSON.parse(await readFile(join(home, '.config/chromium/NativeMessagingHosts/com.kvidzibo.pi_browser_connect.json'), 'utf8'));
   assert.deepEqual(registration.allowed_origins, [`chrome-extension://${extensionId}/`]);
   // Chromium-for-Testing uses its own config root; keep both registrations in the temporary HOME.

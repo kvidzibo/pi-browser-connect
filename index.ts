@@ -63,14 +63,14 @@ export default function browserConnect(pi: ExtensionAPI) {
         signal.throwIfAborted();
         await setup(selected, id);
         signal.throwIfAborted();
-        ctx.ui.notify(`Local bridge registered for ${selected}. In chrome://extensions, enable Developer mode and Load unpacked:\n${extensionPath}\nThen open Pi Browser Connect on the tab you want to share.`, 'info');
+        return `Local bridge registered for ${selected}. In chrome://extensions, enable Developer mode and Load unpacked:\n${extensionPath}\nThen open Pi Browser Connect on the tab you want to share.`;
       };
       const run = async () => {
         try {
           if (action === 'setup') {
             const selected = browser || await ctx.ui.select('Register local browser bridge for:', ['Chromium', 'Google Chrome'], { signal });
             if (!selected || signal.aborted) return;
-            await register(selected === 'Google Chrome' ? 'chrome' : selected.toLowerCase());
+            ctx.ui.notify(await register(selected === 'Google Chrome' ? 'chrome' : selected.toLowerCase()), 'info');
             return;
           }
           const label = `${preview(basename(ctx.cwd), 60)} · ${ctx.sessionManager.getSessionId().slice(0, 8)}`;
@@ -90,8 +90,8 @@ export default function browserConnect(pi: ExtensionAPI) {
             if (!deadline) {
               const selected = await ctx.ui.select('No browser bridge running. Register it for:', ['Chromium', 'Google Chrome', 'Already registered — wait for browser popup'], { signal });
               if (!selected || signal.aborted) return;
-              if (selected !== 'Already registered — wait for browser popup') await register(selected === 'Chromium' ? 'chromium' : 'chrome');
-              ctx.ui.notify('Open Pi Browser Connect in your browser toolbar. Waiting up to 2 minutes; /browser-connect disconnect cancels.', 'info');
+              const instructions = selected === 'Already registered — wait for browser popup' ? 'Open Pi Browser Connect in your browser toolbar.' : await register(selected === 'Chromium' ? 'chromium' : 'chrome');
+              ctx.ui.notify(`${instructions}\nWaiting up to 2 minutes; /browser-connect disconnect cancels.`, 'info');
               deadline = Date.now() + 120_000;
             }
             if (Date.now() >= deadline) throw new Error('No browser bridge appeared. Open the browser popup, check its setup error, then run /browser-connect again.');
