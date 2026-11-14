@@ -52,6 +52,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const notices = [];
   const approvals = [];
   let approval;
+  let onApproval;
   const approvalChoices = ['Deny', 'Approve once', 'Approve all for this session'];
   const ctx = { hasUI: true, cwd: home, sessionManager: { getSessionId: () => 'integration-session' }, ui: {
     notify: message => notices.push(message),
@@ -59,7 +60,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
       if (options.includes('Chromium')) return 'Chromium';
       assert.deepEqual(options, approvalChoices);
       approvals.push(title);
-      return approval;
+      return onApproval ? await onApproval() : approval;
     },
   } };
   const call = async params => tool.execute('integration', params, new AbortController().signal, undefined, ctx);
@@ -170,15 +171,21 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await assert.rejects(call({ action: 'type', ref: input.ref, text: 'Hello from Pi' }), /denied/);
   assert.equal(await fixture.locator('#message').inputValue(), '');
   assert.equal(approvals.length, 2);
+  const cancelled = new AbortController();
+  onApproval = () => { cancelled.abort(); return 'Approve all for this session'; };
+  await assert.rejects(tool.execute('cancelled', { action: 'type', ref: input.ref, text: 'Cancelled' }, cancelled.signal, undefined, ctx), { name: 'AbortError' });
+  onApproval = undefined;
+  await assert.rejects(call({ action: 'type', ref: input.ref, text: 'Still denied' }), /denied/);
+  assert.equal(await fixture.locator('#message').inputValue(), '');
   approval = 'Approve once';
   await call({ action: 'type', ref: input.ref, text: 'Hello from Pi' });
-  assert.equal(approvals.length, 3);
+  assert.equal(approvals.length, 5);
   assert.equal(await fixture.locator('#message').inputValue(), 'Hello from Pi');
   await assert.rejects(call({ action: 'type', ref: input.ref, text: 'repeat' }), /reference/);
   snapshot = data(await call({ action: 'snapshot' }));
   const save = snapshot.elements.find(element => element.label === 'Save draft');
   await call({ action: 'click', ref: save.ref });
-  assert.equal(approvals.length, 4, 'Approve once must prompt again for the next mutation');
+  assert.equal(approvals.length, 6, 'Approve once must prompt again for the next mutation');
   assert.match(approvals.at(-1), /click/);
   assert.match(approvals.at(-1), /Save draft/);
   assert.equal(await fixture.locator('#result').textContent(), 'Saved: Hello from Pi');
@@ -186,7 +193,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const field = snapshot.elements.find(element => element.label === 'Message');
   approval = 'Approve all for this session';
   await call({ action: 'press', ref: field.ref, key: 'Backspace' });
-  assert.equal(approvals.length, 5);
+  assert.equal(approvals.length, 7);
   assert.equal(await fixture.locator('#message').inputValue(), 'Hello from P');
   const sessionApprovalCount = approvals.length;
   approval = 'Deny'; // Any unexpected prompt now denies rather than silently approving.
@@ -219,8 +226,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
     assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-narrow.png') });
   }
-  // Reconnect the same isolated browser and explicitly share again: approval must not survive.
-  await command('disconnect', ctx);
+  // Tree navigation disconnects; reconnect and share again: approval must not survive.
+  for (const handler of extension.handlers.get('session_tree')) await handler({ type: 'session_tree' }, ctx);
   await assert.rejects(call({ action: 'tabs' }), /Not connected/);
   await indicator(false);
   await command('connect', ctx);
@@ -235,10 +242,26 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   snapshot = data(await call({ action: 'snapshot' }));
   const reconnectedField = snapshot.elements.find(element => element.label === 'Message');
   await assert.rejects(call({ action: 'type', ref: reconnectedField.ref, text: 'After reconnect' }), /denied/);
-  assert.equal(approvals.length, sessionApprovalCount + 1, 'Reconnection resets session approval');
+  assert.equal(approvals.length, sessionApprovalCount + 1, 'Tree navigation and reconnection reset session approval');
   assert.equal(await fixture.locator('#message').inputValue(), '');
   approval = 'Approve once';
   await call({ action: 'type', ref: reconnectedField.ref, text: 'After reconnect' });
+  assert.equal(await fixture.locator('#message').inputValue(), 'After reconnect');
+  snapshot = data(await call({ action: 'snapshot' }));
+  onApproval = async () => { await command('disconnect', ctx); return 'Approve all for this session'; };
+  await assert.rejects(call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Changed connection' }), /Connection changed/);
+  onApproval = undefined;
+  await command('connect', ctx);
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
+  await fixture.bringToFront();
+  execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+  await delay(300);
+  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await popup.evaluate(() => document.querySelector('#share').click());
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
+  snapshot = data(await call({ action: 'snapshot' }));
+  approval = 'Deny';
+  await assert.rejects(call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Still denied' }), /denied/);
   assert.equal(await fixture.locator('#message').inputValue(), 'After reconnect');
   await fixture.goto(`http://localhost:${server.address().port}/other`);
   await eventually(async () => { try { await call({ action: 'snapshot' }); return false; } catch (error) { return /Not connected|revoked|changed|closed/.test(error.message); } });
