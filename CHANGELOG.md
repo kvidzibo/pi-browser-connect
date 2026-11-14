@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+Make the toolbar artwork larger and bolder, with a red dot when no tab is shared and a green dot while sharing. Reset the indicator after disconnection or worker restart; replace the old ON badge.
+
 ## 0.2.1
 
 Enlarge the browser-window artwork by 35% within Chromium's fixed icon slot, reducing padding and improving toolbar legibility.

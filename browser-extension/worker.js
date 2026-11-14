@@ -9,21 +9,30 @@ let busy = false;
 let connecting = false;
 let lastError = '';
 let detachBarrier = Promise.resolve();
+let iconUpdates = Promise.resolve();
 
 function post(message) {
   try { port?.postMessage(message); } catch { /* Disconnect handler revokes access. */ }
 }
-function badge() {
-  chrome.action.setBadgeText({ text: grant ? 'ON' : '' }).catch(() => {});
-  chrome.action.setBadgeBackgroundColor({ color: '#276b46' }).catch(() => {});
+function updateIcon() {
+  const shared = Boolean(grant);
+  // Serialize image loading so a late green update cannot overwrite revocation.
+  iconUpdates = iconUpdates.then(() => chrome.action.setIcon({ path: {
+    16: `icons/icon-${shared ? 'connected-' : ''}16.png`,
+    32: `icons/icon-${shared ? 'connected-' : ''}32.png`,
+  } })).catch(() => {});
+  chrome.action.setBadgeText({ text: '' }).catch(() => {});
+  chrome.action.setTitle({ title: `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}` }).catch(() => {});
 }
+// Reset persisted action state whenever the worker starts without a grant.
+updateIcon();
 function revoke(reason, notify = true) {
   const old = grant;
   const owner = session;
   grant = undefined;
   session = undefined;
   lastError = reason;
-  badge();
+  updateIcon();
   if (notify && owner) post({ type: 'revoked', sessionId: owner.sessionId, reason });
   if (old) detachBarrier = detachBarrier.then(() => chrome.debugger.detach({ tabId: old.tabId })).catch(() => {});
   return detachBarrier;
@@ -160,7 +169,7 @@ async function share(tabId, sessionId, expectedOrigin) {
     grant = { tabId, origin, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
     await cdp(grant, 'Page.enable');
     lastError = '';
-    badge();
+    updateIcon();
   } catch (error) {
     if (grant?.sessionId === owner.sessionId) await revoke('Unable to share tab.');
     else if (attached) await chrome.debugger.detach({ tabId }).catch(() => {});

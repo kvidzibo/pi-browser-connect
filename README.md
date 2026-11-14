@@ -53,6 +53,8 @@ The `browser_connect` tool supports `tabs`, `snapshot`, `click`, `type`, `press`
 - `/browser-connect disconnect` — revoke access.
 - Browser popup **Disconnect** — revoke immediately, including pending actions.
 
+The toolbar icon shows a **red dot** when no tab is shared and a **green dot** while a tab is shared. A ready bridge or pending pairing alone stays red.
+
 Closing the shared tab, leaving its origin, detaching debugging, closing Pi, switching sessions/branches, or `/reload` revokes sharing. There is no automatic Pi reconnection or tab sharing. Opening the popup starts only the local transport. A cancelled or timed-out action may already have run; never blindly retry it.
 
 ## Privacy and limitations
@@ -77,6 +79,8 @@ xvfb-run -a dbus-run-session -- npm run test:integration
 npm pack --dry-run
 ```
 
-Integration uses a temporary HOME/profile, synthetic local pages, the real native host, and Pi's loader—never your normal browser or a model request. Set `BROWSER_CONNECT_CHROMIUM=/usr/bin/chromium` to use a system browser. Screenshots can be saved under `/tmp/` with `BROWSER_CONNECT_SCREENSHOTS=/tmp/browser-connect-captures`.
+To regenerate the toolbar icons from `browser-extension/icons/icon.svg`, install `rsvg-convert` (Debian: `librsvg2-bin`) and run `node scripts/generate-icons.mjs`.
+
+Integration uses a temporary HOME/profile, synthetic local pages, the real native host, and Pi's loader—never your normal browser or a model request. Set `BROWSER_CONNECT_CHROMIUM=/usr/bin/chromium` to use a system browser. Screenshots can be saved under `/tmp/` with `BROWSER_CONNECT_SCREENSHOTS=/tmp/browser-connect-captures`; toolbar captures also require ImageMagick's `import` command.
 
 [Architecture and troubleshooting](docs/architecture.md) · [Publishing](docs/publishing.md) · [MIT](LICENSE)
