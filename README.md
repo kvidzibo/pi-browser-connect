@@ -45,7 +45,7 @@ Ask Pi, for example:
 
 > Use browser_connect to inspect the tab I shared. Summarize it without changing anything.
 
-The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, `screenshot`, and `evaluate`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab, origin, reference, or sensitive-field restrictions. Noninteractive mutations still fail closed.
+The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, `screenshot`, and `evaluate`. Typing **replaces** an input's text. Clicks, typing, keypresses, navigation, and scripts open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab, origin, or reference checks. Scripts can access sensitive DOM data; the element-level exclusions for inspection and reference-based actions do not sandbox scripts. Noninteractive mutations still fail closed.
 
 For image blur or layout debugging, use `{"action":"inspect","selector":"img"}`. Inspection returns each match's CSS classes, sanitized opening HTML tag, fixed computed styles (including `filter` and `backdrop-filter`), and up to five ancestors. It is read-only, needs no action confirmation, and preserves existing snapshot references.
 
@@ -53,7 +53,7 @@ Selectors support tags, IDs, classes, lists, and basic combinators only; attribu
 
 ### JavaScript and CSS changes
 
-Use `evaluate` only when you explicitly want scripting. Every call requires **Approve once**, even after session-wide approval; noninteractive calls fail closed. The approval menu shows a bounded preview; inspect the full tool call before approving longer scripts.
+Use `evaluate` only when you explicitly want scripting. Choose **Approve once** for one script or **Approve all for this session** to allow scripts and other mutations without further prompts until disconnect, session/branch change, or `/reload`. Session approval granted by another mutation also covers scripts. Noninteractive calls still fail closed. The approval menu shows a bounded preview; inspect the full tool call before approving longer scripts.
 
 For example, to remove a CSS blur overlay:
 

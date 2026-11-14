@@ -2,7 +2,7 @@
 
 ## 0.5.0
 
-Add `evaluate` for synchronous JavaScript and DOM/CSS changes in the shared main document. Require approval for every script, independent of session approval. Bound results, invalidate references, and document sensitive-data/network access and non-rollback limitations. Browser extension version: 0.4.0.
+Add `evaluate` for synchronous JavaScript and DOM/CSS changes in the shared main document. Allow one-call approval or session-wide approval shared with other browser mutations, with an explicit script-risk warning. Bound results, invalidate references, and document sensitive-data/network access and non-rollback limitations. Browser extension version: 0.4.0.
 
 ## 0.4.0
 

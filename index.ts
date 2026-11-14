@@ -8,7 +8,7 @@ import { actions, validateParams } from './browser-extension/policy.js';
 
 const parameters = Type.Object({
   action: Type.String({ enum: actions }),
-  expression: Type.Optional(Type.String({ maxLength: 4000, description: 'Synchronous JavaScript expression in the shared main document’s isolated world. Use an IIFE for statements. Requires approval every call; can read sensitive data and make signed-in requests. No secrets. Return a JSON-serializable value.' })),
+  expression: Type.Optional(Type.String({ maxLength: 4000, description: 'Synchronous JavaScript expression in the shared main document’s isolated world. Use an IIFE for statements. Requires one-call or session approval; can read sensitive data and make signed-in requests. No secrets. Return a JSON-serializable value.' })),
   selector: Type.Optional(Type.String({ maxLength: 500, description: 'Simple CSS selector (tags, IDs, classes, combinators; no attributes, pseudo-classes or escapes) for read-only inspection; at most 10 matches and 5 ancestors each. HTML is sanitized opening tags only.' })),
   ref: Type.Optional(Type.String({ maxLength: 80, description: 'Reference from the latest snapshot; consumed by an interaction.' })),
   text: Type.Optional(Type.String({ maxLength: 4000, description: 'Replacement text. Never passwords, tokens, or payment details.' })),
@@ -133,20 +133,16 @@ export default function browserConnect(pi: ExtensionAPI) {
       signal?.throwIfAborted();
       const connection = client;
       if (!connection?.connected) throw new Error('Not connected. The user must run /browser-connect connect and explicitly share a browser tab.');
-      if (params.action === 'evaluate') {
-        if (!ctx.hasUI) throw new Error('Browser scripts require interactive approval.');
-        const choice = await ctx.ui.select(`Run JavaScript in the shared tab?\nCan read sensitive page data and make signed-in requests.\nScript preview: ${preview(params.expression!, 240)}${params.expression!.length > 240 ? '… [preview only; see tool call for full script]' : ''}\nApproval is for this call only; side effects cannot be undone.`, ['Deny', 'Approve once'], { signal });
-        signal?.throwIfAborted();
-        if (choice !== 'Approve once') throw new Error('Browser script denied. Do not retry without user direction.');
-        if (client !== connection || !connection.connected) throw new Error('Connection changed while awaiting approval.');
-      }
-      if (['click', 'type', 'press', 'navigate'].includes(params.action)) {
+      if (['click', 'type', 'press', 'navigate', 'evaluate'].includes(params.action)) {
         if (!ctx.hasUI) throw new Error('Browser mutations require interactive approval.');
         if (params.ref && !elements.has(params.ref)) throw new Error('Unknown or consumed reference. Take a fresh snapshot.');
         if (!approveAll) {
           const target = params.ref ? preview(elements.get(params.ref)!) : preview(params.url || '', 180);
           const extra = params.action === 'type' ? `\nReplace text (${params.text!.length} characters): ${preview(params.text!, 120)}${params.text!.length > 120 ? '… [preview only]' : ''}` : params.key ? `\nKey: ${params.key}` : '';
-          const choice = await ctx.ui.select(`Allow browser action?\n${params.action}: ${target}${extra}\nThis acts in your signed-in browser.\nSession approval lasts until disconnect, session change, or reload.`, ['Deny', 'Approve once', 'Approve all for this session'], { signal });
+          const title = params.action === 'evaluate'
+            ? `Run JavaScript in the shared tab?\nCan read sensitive page data and make signed-in requests.\nScript preview: ${preview(params.expression!, 240)}${params.expression!.length > 240 ? '… [preview only; see tool call for full script]' : ''}\nSide effects cannot be undone.`
+            : `Allow browser action?\n${params.action}: ${target}${extra}\nThis acts in your signed-in browser.`;
+          const choice = await ctx.ui.select(`${title}\nApprove all includes scripts that can read sensitive data and make signed-in requests.\nSession approval lasts until disconnect, session change, or reload.`, ['Deny', 'Approve once', 'Approve all for this session'], { signal });
           signal?.throwIfAborted();
           if (choice !== 'Approve once' && choice !== 'Approve all for this session') throw new Error('Browser action denied. Do not retry without user direction.');
           if (client !== connection || !connection.connected) throw new Error('Connection changed while awaiting approval.');

@@ -58,7 +58,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
     notify: message => notices.push(message),
     select: async (title, options) => {
       if (options.includes('Chromium')) return 'Chromium';
-      assert.deepEqual(options, title.startsWith('Run JavaScript') ? ['Deny', 'Approve once'] : approvalChoices);
+      assert.deepEqual(options, approvalChoices);
       approvals.push(title);
       return onApproval ? await onApproval() : approval;
     },
@@ -269,18 +269,34 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
     assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-narrow.png') });
   }
-  // Scripts always require per-call approval, even with mutation session approval.
+  // Session approval from a normal mutation covers scripts, but still requires UI.
+  const approvedScript = { action: 'evaluate', expression: '1' };
+  await assert.rejects(tool.execute('noninteractive-approved-script', approvedScript, undefined, undefined, { ...ctx, hasUI: false }), /interactive approval/);
+  assert.deepEqual(data(await call(approvedScript)), { result: '1', truncated: false });
+  assert.equal(approvals.length, sessionApprovalCount, 'Mutation session approval suppresses script prompts, not the UI requirement');
+  // Disconnect, reconnect, and explicitly share the fixture to reset session approval.
+  await command('disconnect', ctx);
+  await indicator(false);
+  await command('connect', ctx);
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
+  await fixture.bringToFront();
+  execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+  await delay(300);
+  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await popup.evaluate(() => document.querySelector('#share').click());
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
+  await indicator(true);
   const evaluateStart = approvals.length;
   const unblur = { action: 'evaluate', expression: `(() => { const node = document.querySelector('.blur-parent'); node.style.filter = 'none'; return getComputedStyle(node).filter; })()` };
   const filter = () => fixture.locator('.blur-parent').evaluate(node => getComputedStyle(node).filter);
   assert.equal(await filter(), 'blur(8px)');
   approval = 'Deny';
-  await assert.rejects(call(unblur), /script denied/);
+  await assert.rejects(call(unblur), /denied/);
   approval = undefined;
-  await assert.rejects(call(unblur), /script denied/);
+  await assert.rejects(call(unblur), /denied/);
   assert.equal(await filter(), 'blur(8px)', 'Denied and dismissed scripts must not change the DOM');
   const scriptCancelled = new AbortController();
-  onApproval = () => { scriptCancelled.abort(); return 'Approve once'; };
+  onApproval = () => { scriptCancelled.abort(); return 'Approve all for this session'; };
   await assert.rejects(tool.execute('cancelled-script', unblur, scriptCancelled.signal, undefined, ctx), { name: 'AbortError' });
   onApproval = undefined;
   const beforeNoUI = approvals.length;
@@ -303,24 +319,30 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   for (const expression of ['(() => { throw new Error("fixture failure"); })()', 'Promise.resolve(1)', '(() => { const value = {}; value.self = value; return value; })()']) {
     await assert.rejects(call({ action: 'evaluate', expression }), /Browser script failed/);
   }
-  assert.equal(approvals.length - evaluateStart, 11, 'Every script call prompts; noninteractive execution does not');
+  assert.equal(approvals.length - evaluateStart, 11, 'Without session approval every script call prompts; cancellation must not grant session approval');
   const scriptEvaluations = await worker.evaluate(() => globalThis.scriptEvaluations);
-  assert.equal(scriptEvaluations.length, 8, 'Only approved scripts reach CDP');
-  assert.equal(new Set(scriptEvaluations.map(entry => entry.contextId)).size, 8, 'Each script gets a fresh isolated world');
+  assert.equal(scriptEvaluations.length, 9, 'Only approved scripts reach CDP, including the session-approved script');
+  assert.equal(new Set(scriptEvaluations.map(entry => entry.contextId)).size, 9, 'Each script gets a fresh isolated world');
   for (const entry of scriptEvaluations) {
     assert.equal(entry.timeout, 5000);
     assert.equal(entry.awaitPromise, false);
     assert.equal(entry.returnByValue, true);
   }
-  // Script approvals neither replace nor revoke existing mutation session approval.
+  // Session approval selected from a script covers both scripts and normal mutations.
+  approval = 'Approve all for this session';
+  assert.deepEqual(data(await call(approvedScript)), { result: '1', truncated: false });
+  assert.equal(approvals.length - evaluateStart, 12);
+  assert.match(approvals.at(-1), /^Run JavaScript/);
+  const scriptSessionApprovalCount = approvals.length;
   approval = 'Deny';
+  assert.deepEqual(data(await call({ action: 'evaluate', expression: '2' })), { result: '2', truncated: false });
   snapshot = data(await call({ action: 'snapshot' }));
   await call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Session still approved' });
-  assert.equal(approvals.length - evaluateStart, 11);
+  assert.equal(approvals.length, scriptSessionApprovalCount, 'Script session approval suppresses script and normal mutation prompts');
   assert.equal(await fixture.locator('#message').inputValue(), 'Session still approved');
-  approval = 'Approve once';
   await assert.rejects(call({ action: 'evaluate', expression: '(() => { while (true) {} })()' }), /timed out|terminated/i);
   assert.deepEqual(data(await call({ action: 'evaluate', expression: '1' })), { result: '1', truncated: false });
+  assert.equal(approvals.length, scriptSessionApprovalCount, 'Timeout and recovery retain session approval');
   approval = 'Deny';
   const approvalsBeforeReconnect = approvals.length;
   // Tree navigation disconnects; reconnect and share again: approval must not survive.
@@ -339,7 +361,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   snapshot = data(await call({ action: 'snapshot' }));
   const reconnectedField = snapshot.elements.find(element => element.label === 'Message');
   await assert.rejects(call({ action: 'type', ref: reconnectedField.ref, text: 'After reconnect' }), /denied/);
-  assert.equal(approvals.length, approvalsBeforeReconnect + 1, 'Tree navigation and reconnection reset session approval');
+  await assert.rejects(call(approvedScript), /denied/);
+  assert.equal(approvals.length, approvalsBeforeReconnect + 2, 'Tree navigation and reconnection reset session approval for mutations and scripts');
   assert.equal(await fixture.locator('#message').inputValue(), 'Session still approved');
   approval = 'Approve once';
   await call({ action: 'type', ref: reconnectedField.ref, text: 'After reconnect' });
