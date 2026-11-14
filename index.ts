@@ -21,8 +21,10 @@ type Result = { image?: string; mimeType?: string; elements?: Array<{ ref: strin
 export default function browserConnect(pi: ExtensionAPI) {
   let client: BrowserClient | undefined;
   let pending: AbortController | undefined;
+  let approveAll = false;
   let elements = new Map<string, string>();
   const disconnect = () => {
+    approveAll = false;
     pending?.abort();
     client?.close();
     client = undefined;
@@ -80,6 +82,7 @@ export default function browserConnect(pi: ExtensionAPI) {
             try {
               const connection = await BrowserClient.connect(label, { signal });
               if (signal.aborted) { connection.close(); return; }
+              approveAll = false;
               client = connection;
               elements.clear();
               ctx.ui.notify(`Pairing code: ${client.code}. Open Pi Browser Connect, compare the code, and share your tab. Page content and screenshots may reach your model provider.`, 'info');
@@ -130,12 +133,15 @@ export default function browserConnect(pi: ExtensionAPI) {
       if (['click', 'type', 'press', 'navigate'].includes(params.action)) {
         if (!ctx.hasUI) throw new Error('Browser mutations require interactive approval.');
         if (params.ref && !elements.has(params.ref)) throw new Error('Unknown or consumed reference. Take a fresh snapshot.');
-        const target = params.ref ? preview(elements.get(params.ref)!) : preview(params.url || '', 180);
-        const extra = params.action === 'type' ? `\nReplace text (${params.text!.length} characters): ${preview(params.text!, 120)}${params.text!.length > 120 ? '… [preview only]' : ''}` : params.key ? `\nKey: ${params.key}` : '';
-        const approved = await ctx.ui.confirm('Allow browser action?', `${params.action}: ${target}${extra}\nThis acts in your signed-in browser. Cancel if unsure.`, { signal });
-        signal?.throwIfAborted();
-        if (!approved) throw new Error('Browser action denied. Do not retry without user direction.');
-        if (client !== connection || !connection.connected) throw new Error('Connection changed while awaiting approval.');
+        if (!approveAll) {
+          const target = params.ref ? preview(elements.get(params.ref)!) : preview(params.url || '', 180);
+          const extra = params.action === 'type' ? `\nReplace text (${params.text!.length} characters): ${preview(params.text!, 120)}${params.text!.length > 120 ? '… [preview only]' : ''}` : params.key ? `\nKey: ${params.key}` : '';
+          const choice = await ctx.ui.select(`Allow browser action?\n${params.action}: ${target}${extra}\nThis acts in your signed-in browser.\nSession approval lasts until disconnect, session change, or reload.`, ['Deny', 'Approve once', 'Approve all for this session'], { signal });
+          signal?.throwIfAborted();
+          if (choice !== 'Approve once' && choice !== 'Approve all for this session') throw new Error('Browser action denied. Do not retry without user direction.');
+          if (client !== connection || !connection.connected) throw new Error('Connection changed while awaiting approval.');
+          approveAll = choice === 'Approve all for this session';
+        }
       }
       if (!['tabs', 'screenshot'].includes(params.action)) elements.clear();
       const result = await connection.request(params, signal) as Result;
