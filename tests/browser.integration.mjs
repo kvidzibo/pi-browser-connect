@@ -50,12 +50,18 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const command = extension.commands.get('browser-connect').handler;
   const tool = extension.tools.get('browser_connect').definition;
   const notices = [];
-  const confirmations = [];
-  let approve = false;
+  const approvals = [];
+  let approval;
+  let onApproval;
+  const approvalChoices = ['Deny', 'Approve once', 'Approve all for this session'];
   const ctx = { hasUI: true, cwd: home, sessionManager: { getSessionId: () => 'integration-session' }, ui: {
     notify: message => notices.push(message),
-    select: async (_title, options) => { assert.ok(options.includes('Chromium')); return 'Chromium'; },
-    confirm: async (title, body) => { confirmations.push({ title, body }); return approve; },
+    select: async (title, options) => {
+      if (options.includes('Chromium')) return 'Chromium';
+      assert.deepEqual(options, approvalChoices);
+      approvals.push(title);
+      return onApproval ? await onApproval() : approval;
+    },
   } };
   const call = async params => tool.execute('integration', params, new AbortController().signal, undefined, ctx);
   const data = result => JSON.parse(result.content[0].text.replace(/^UNTRUSTED BROWSER DATA\n/, ''));
@@ -156,7 +162,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const input = snapshot.elements.find(element => element.label === 'Message');
   assert.ok(input);
   // Inspection is read-only, even before mutation approval, and must preserve snapshot refs.
-  const confirmationsBeforeInspect = confirmations.length;
+  const approvalsBeforeInspect = approvals.length;
   const inspected = data(await call({ action: 'inspect', selector: 'img.picture' }));
   assert.equal(inspected.elements.length, 1);
   assert.equal(inspected.truncated, false);
@@ -189,21 +195,51 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await assert.rejects(call({ action: 'inspect' }), /selector/i);
   await assert.rejects(call({ action: 'inspect', selector: '   ' }), /selector/i);
   await assert.rejects(call({ action: 'inspect', selector: 'a'.repeat(501) }), /selector/i);
-  assert.equal(confirmations.length, confirmationsBeforeInspect);
+  assert.equal(approvals.length, approvalsBeforeInspect);
   await assert.rejects(call({ action: 'type', ref: input.ref, text: 'Hello from Pi' }), /denied/);
   assert.equal(await fixture.locator('#message').inputValue(), '');
-  approve = true;
+  assert.equal(approvals.length, 1, 'Dismissing the selector denies the mutation');
+  assert.match(approvals[0], /type/);
+  assert.match(approvals[0], /Message/);
+  assert.match(approvals[0], /Hello from Pi/);
+  approval = 'Deny';
+  await assert.rejects(call({ action: 'type', ref: input.ref, text: 'Hello from Pi' }), /denied/);
+  assert.equal(await fixture.locator('#message').inputValue(), '');
+  assert.equal(approvals.length, 2);
+  const cancelled = new AbortController();
+  onApproval = () => { cancelled.abort(); return 'Approve all for this session'; };
+  await assert.rejects(tool.execute('cancelled', { action: 'type', ref: input.ref, text: 'Cancelled' }, cancelled.signal, undefined, ctx), { name: 'AbortError' });
+  onApproval = undefined;
+  await assert.rejects(call({ action: 'type', ref: input.ref, text: 'Still denied' }), /denied/);
+  assert.equal(await fixture.locator('#message').inputValue(), '');
+  approval = 'Approve once';
   await call({ action: 'type', ref: input.ref, text: 'Hello from Pi' });
+  assert.equal(approvals.length, 5);
   assert.equal(await fixture.locator('#message').inputValue(), 'Hello from Pi');
   await assert.rejects(call({ action: 'type', ref: input.ref, text: 'repeat' }), /reference/);
   snapshot = data(await call({ action: 'snapshot' }));
   const save = snapshot.elements.find(element => element.label === 'Save draft');
   await call({ action: 'click', ref: save.ref });
+  assert.equal(approvals.length, 6, 'Approve once must prompt again for the next mutation');
+  assert.match(approvals.at(-1), /click/);
+  assert.match(approvals.at(-1), /Save draft/);
   assert.equal(await fixture.locator('#result').textContent(), 'Saved: Hello from Pi');
   snapshot = data(await call({ action: 'snapshot' }));
   const field = snapshot.elements.find(element => element.label === 'Message');
+  approval = 'Approve all for this session';
   await call({ action: 'press', ref: field.ref, key: 'Backspace' });
+  assert.equal(approvals.length, 7);
   assert.equal(await fixture.locator('#message').inputValue(), 'Hello from P');
+  const sessionApprovalCount = approvals.length;
+  approval = 'Deny'; // Any unexpected prompt now denies rather than silently approving.
+  await assert.rejects(call({ action: 'press', ref: field.ref, key: 'Backspace' }), /reference/);
+  snapshot = data(await call({ action: 'snapshot' }));
+  const currentField = snapshot.elements.find(element => element.label === 'Message');
+  await assert.rejects(tool.execute('noninteractive', { action: 'type', ref: currentField.ref, text: 'Must not be typed' }, new AbortController().signal, undefined, { ...ctx, hasUI: false }), /interactive approval/);
+  assert.equal(await fixture.locator('#message').inputValue(), 'Hello from P');
+  await call({ action: 'type', ref: currentField.ref, text: 'Hello from Pi' });
+  assert.equal(await fixture.locator('#message').inputValue(), 'Hello from Pi');
+  assert.equal(approvals.length, sessionApprovalCount, 'Session approval skips prompts but retains UI and reference validation');
   snapshot = data(await call({ action: 'snapshot' }));
   const old = snapshot.elements.find(element => element.label === 'Save draft');
   await fixture.locator('#save').evaluate(element => { element.textContent = 'Changed action'; });
@@ -218,19 +254,57 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await call({ action: 'navigate', url: url + 'next' });
   await fixture.waitForURL(url + 'next');
   await call({ action: 'snapshot' });
+  assert.equal(approvals.length, sessionApprovalCount, 'Session approval also suppresses navigation prompts');
   if (captures) {
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-shared.png') });
     await popup.setViewportSize({ width: 320, height: 900 });
     assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-narrow.png') });
   }
+  // Tree navigation disconnects; reconnect and share again: approval must not survive.
+  for (const handler of extension.handlers.get('session_tree')) await handler({ type: 'session_tree' }, ctx);
+  await assert.rejects(call({ action: 'tabs' }), /Not connected/);
+  await indicator(false);
+  await command('connect', ctx);
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
+  await fixture.bringToFront();
+  execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+  await delay(300);
+  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await popup.evaluate(() => document.querySelector('#share').click());
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
+  await indicator(true);
+  snapshot = data(await call({ action: 'snapshot' }));
+  const reconnectedField = snapshot.elements.find(element => element.label === 'Message');
+  await assert.rejects(call({ action: 'type', ref: reconnectedField.ref, text: 'After reconnect' }), /denied/);
+  assert.equal(approvals.length, sessionApprovalCount + 1, 'Tree navigation and reconnection reset session approval');
+  assert.equal(await fixture.locator('#message').inputValue(), '');
+  approval = 'Approve once';
+  await call({ action: 'type', ref: reconnectedField.ref, text: 'After reconnect' });
+  assert.equal(await fixture.locator('#message').inputValue(), 'After reconnect');
+  snapshot = data(await call({ action: 'snapshot' }));
+  onApproval = async () => { await command('disconnect', ctx); return 'Approve all for this session'; };
+  await assert.rejects(call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Changed connection' }), /Connection changed/);
+  onApproval = undefined;
+  await command('connect', ctx);
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
+  await fixture.bringToFront();
+  execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+  await delay(300);
+  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await popup.evaluate(() => document.querySelector('#share').click());
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
+  snapshot = data(await call({ action: 'snapshot' }));
+  approval = 'Deny';
+  await assert.rejects(call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Still denied' }), /denied/);
+  assert.equal(await fixture.locator('#message').inputValue(), 'After reconnect');
   await fixture.goto(`http://localhost:${server.address().port}/other`);
   await eventually(async () => { try { await call({ action: 'snapshot' }); return false; } catch (error) { return /Not connected|revoked|changed|closed/.test(error.message); } });
   await indicator(false);
   if (captures) execFileSync('import', ['-window', 'root', join(captures, 'toolbar-revoked.png')]);
   await command('disconnect', ctx);
   await assert.rejects(call({ action: 'tabs' }), /Not connected/);
-  assert.ok(confirmations.length >= 6);
+  assert.ok(approvals.length >= 6);
   for (const handler of extension.handlers.get('session_shutdown')) await handler({ type: 'session_shutdown', reason: 'reload' }, ctx);
   await loader.reload();
   assert.deepEqual(loader.getExtensions().errors, []);

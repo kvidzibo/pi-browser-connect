@@ -4,7 +4,7 @@
 Pi tool → private Unix socket → native host → Native Messaging → browser worker → shared tab
 ```
 
-- `index.ts`: Pi command, native confirmation dialogs, bounded tool output, lifecycle revocation.
+- `index.ts`: Pi command, native approval menus, bounded tool output, lifecycle revocation.
 - `native-host/`: dependency-free Node host, client, framed protocol, explicit installer.
 - `browser-extension/`: Manifest V3 popup, in-memory grant, fixed CDP actions and isolated-world DOM snapshots.
 
@@ -15,6 +15,8 @@ Opening the browser popup starts the native host on demand; it never grants tab 
 Read-only `inspect` evaluates fixed code in the same isolated world, accepts only a bounded simple CSS selector (no attribute selectors, pseudo-classes, or escapes that could probe excluded fields), and returns sanitized opening tags, classes and allowlisted computed styles for up to ten matches and five ancestors each. It never accepts JavaScript or raw CDP commands, serializes no text or arbitrary HTML attributes, and leaves snapshot references intact. Grant/origin and document-loader checks apply before/after inspection.
 
 Snapshots store node references in a CDP isolated world. Navigation, document replacement, DOM mutation, and actions invalidate references. Each request rechecks the grant, origin, and document where applicable. These checks reduce stale actions; they cannot make a live browser atomic against concurrent user/page changes. Do not manually edit the tab while Pi is acting.
+
+Action approval is held only in the Pi extension's memory. The native selector defaults to Deny and offers one-action or session approval. Disconnect, a new connection, session shutdown/tree navigation, and reload reset it. Approval is recorded only after cancellation and connection-identity checks; automatic approval still requires an interactive UI and valid references. Browser-side grants and policy checks remain independent.
 
 ## Local files
 
