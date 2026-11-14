@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pi Browser Connect</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <header><span class="mark">π</span><div><h1>Browser Connect</h1><p>One tab. Your permission.</p></div></header>
+    <section aria-label="Connection"><span id="badge" class="badge">Not connected</span><p id="status" role="status">Checking connection…</p></section>
+    <section id="pairing" hidden>
+      <h2>Compare with Pi</h2><p id="session"></p><strong id="code" class="code"></strong>
+      <p class="hint">Only continue if this code matches the one in your Pi terminal.</p>
+    </section>
+    <section id="target" hidden><h2>Tab to share</h2><p id="title"></p><p id="origin" class="origin"></p></section>
+    <p class="warning">Sharing lets the agent read this page and act as you. Page text and unredacted screenshots can reach your model provider. Pi asks before clicks, typing, keypresses, and navigation.</p>
+    <div class="buttons">
+      <button id="connect">Start local bridge</button>
+      <button id="share" hidden>Share this tab with Pi</button>
+      <button id="disconnect" class="danger" hidden>Disconnect</button>
+      <button id="refresh" class="secondary">Refresh</button>
+    </div>
+    <p id="error" role="alert" hidden></p>
+    <details><summary>Setup &amp; limits</summary>
+      <p>Install this package, then register the local bridge:</p><code id="setup"></code>
+      <p>In Pi, run <code>/browser-connect connect</code>. Return here, refresh, compare the code, and share this tab.</p>
+      <p>Linux, Chrome/Chromium 125+. One session and tab. Main document only; no iframe or shadow-root controls. Leaving this origin disconnects. Do not share sensitive pages.</p>
+    </details>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install --global npm@11
+      - run: npm ci --ignore-scripts
+      - name: Publish new npm version
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          if RESULT=$(npm view "$NAME@$VERSION" version --json 2>&1); then
+            echo "Skip: $NAME@$VERSION already on npm"
+          elif grep -qE '"code"[[:space:]]*:[[:space:]]*"E404"' <<< "$RESULT"; then
+            npm publish --access public --provenance
+          else
+            printf '%s\n' "$RESULT" >&2
+            exit 1
+          fi
+      - name: Publish browser extension release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          ASSET="pi-browser-connect-$VERSION.zip"
+          (cd browser-extension && zip -r "../$ASSET" .)
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists"
+          else
+            gh release create "v$VERSION" "$ASSET" --target "$GITHUB_SHA" \
+              --title "v$VERSION" --generate-notes
+          fi

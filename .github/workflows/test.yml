@@ -1,0 +1,48 @@
+name: test
+
+on:
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test
+      - name: Check release versions
+        run: |
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            import assert from 'node:assert/strict';
+            const read = p => JSON.parse(fs.readFileSync(p, 'utf8'));
+            const version = read('package.json').version;
+            assert.equal(read('package-lock.json').version, version);
+            assert.equal(read('package-lock.json').packages[''].version, version);
+            assert.equal(read('browser-extension/manifest.json').version, version);
+          "
+      - run: npm pack --dry-run
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright-core install --with-deps chromium
+      - run: sudo apt-get install -y xvfb dbus-x11 xdotool
+      - run: xvfb-run -a dbus-run-session -- npm run test:integration
