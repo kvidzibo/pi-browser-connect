@@ -17,12 +17,14 @@ function post(message) {
 function updateIcon() {
   const shared = Boolean(grant);
   // Serialize image loading so a late green update cannot overwrite revocation.
-  iconUpdates = iconUpdates.then(() => chrome.action.setIcon({ path: {
-    16: `icons/icon-${shared ? 'connected-' : ''}16.png`,
-    32: `icons/icon-${shared ? 'connected-' : ''}32.png`,
-  } })).catch(() => {});
-  chrome.action.setBadgeText({ text: '' }).catch(() => {});
-  chrome.action.setTitle({ title: `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}` }).catch(() => {});
+  iconUpdates = iconUpdates.then(async () => {
+    await chrome.action.setIcon({ path: {
+      16: `icons/icon-${shared ? 'connected-' : ''}16.png`,
+      32: `icons/icon-${shared ? 'connected-' : ''}32.png`,
+    } });
+    await chrome.action.setBadgeText({ text: '' });
+    await chrome.action.setTitle({ title: `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}` });
+  }).catch(() => {});
 }
 // Reset persisted action state whenever the worker starts without a grant.
 updateIcon();

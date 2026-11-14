@@ -89,9 +89,31 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
     viewport: { width: 1000, height: 800 },
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
+  // Observe successful real API calls, without replacing icon rendering or grants.
+  await worker.evaluate(() => {
+    globalThis.completedIconPaths = chrome.runtime.getManifest().action.default_icon;
+    const setIcon = chrome.action.setIcon.bind(chrome.action);
+    chrome.action.setIcon = async details => {
+      await setIcon(details);
+      globalThis.completedIconPaths = details.path;
+    };
+  });
   const indicator = async shared => {
+    const expected = { 16: `icons/icon-${shared ? 'connected-' : ''}16.png`, 32: `icons/icon-${shared ? 'connected-' : ''}32.png` };
+    await eventually(async () => JSON.stringify(await worker.evaluate(() => globalThis.completedIconPaths)) === JSON.stringify(expected));
     await eventually(async () => await worker.evaluate(() => chrome.action.getTitle({})) === `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}`);
     assert.equal(await worker.evaluate(() => chrome.action.getBadgeText({})), '');
+    // Verify both resolution variants actually contain the requested status color.
+    const colors = await worker.evaluate(async () => Promise.all(Object.entries(globalThis.completedIconPaths).map(async ([size, path]) => {
+      const bitmap = await createImageBitmap(await (await fetch(chrome.runtime.getURL(path))).blob());
+      const canvas = new OffscreenCanvas(Number(size), Number(size));
+      const drawing = canvas.getContext('2d');
+      drawing.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const center = Math.floor(Number(size) * 104 / 128);
+      return Array.from(drawing.getImageData(center, center, 1, 1).data);
+    })));
+    assert.deepEqual(colors, [16, 32].map(() => shared ? [34, 197, 94, 255] : [239, 68, 68, 255]));
   };
   await indicator(false);
   const fixture = await context.newPage();
