@@ -14,27 +14,43 @@ let iconUpdates = Promise.resolve();
 function post(message) {
   try { port?.postMessage(message); } catch { /* Disconnect handler revokes access. */ }
 }
-function updateIcon() {
-  const shared = Boolean(grant);
+function iconFiles(shared) {
+  return {
+    16: `icons/icon-${shared ? 'connected-' : ''}16.png`,
+    32: `icons/icon-${shared ? 'connected-' : ''}32.png`,
+  };
+}
+function paintIndicator(tabId, shared) {
+  const path = iconFiles(shared);
+  const title = `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}`;
   // Serialize image loading so a late green update cannot overwrite revocation.
   iconUpdates = iconUpdates.then(async () => {
-    await chrome.action.setIcon({ path: {
-      16: `icons/icon-${shared ? 'connected-' : ''}16.png`,
-      32: `icons/icon-${shared ? 'connected-' : ''}32.png`,
-    } });
-    await chrome.action.setBadgeText({ text: '' });
-    await chrome.action.setTitle({ title: `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}` });
+    await chrome.action.setIcon(tabId == null ? { path } : { tabId, path });
+    await chrome.action.setTitle(tabId == null ? { title } : { tabId, title });
+    if (tabId == null) await chrome.action.setBadgeText({ text: '' });
   }).catch(() => {});
+}
+function updateIcon(tabId = grant?.tabId) {
+  // Global action state is shown in every window. Keep it not-sharing and
+  // paint the green indicator only on the shared tab.
+  paintIndicator(undefined, false);
+  if (tabId != null) paintIndicator(tabId, Boolean(grant) && tabId === grant.tabId);
 }
 // Reset persisted action state whenever the worker starts without a grant.
 updateIcon();
+void (async () => {
+  try {
+    const targets = await chrome.debugger.getTargets();
+    for (const target of targets) if (target.attached && target.tabId != null) updateIcon(target.tabId);
+  } catch { /* No attached target to reset. */ }
+})();
 function revoke(reason, notify = true) {
   const old = grant;
   const owner = session;
   grant = undefined;
   session = undefined;
   lastError = reason;
-  updateIcon();
+  updateIcon(old?.tabId);
   if (notify && owner) post({ type: 'revoked', sessionId: owner.sessionId, reason });
   if (old) detachBarrier = detachBarrier.then(() => chrome.debugger.detach({ tabId: old.tabId })).catch(() => {});
   return detachBarrier;
