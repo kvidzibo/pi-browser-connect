@@ -45,7 +45,11 @@ Ask Pi, for example:
 
 > Use browser_connect to inspect the tab I shared. Summarize it without changing anything.
 
-The `browser_connect` tool supports `tabs`, `snapshot`, `click`, `type`, `press`, `scroll`, `navigate`, and `screenshot`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation require Pi's native confirmation dialog. Noninteractive mutations fail closed.
+The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, and `screenshot`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation require Pi's native confirmation dialog. Noninteractive mutations fail closed.
+
+For image blur or layout debugging, use `{"action":"inspect","selector":"img"}`. Inspection returns each match's CSS classes, sanitized opening HTML tag, fixed computed styles (including `filter` and `backdrop-filter`), and up to five ancestors. It is read-only, needs no action confirmation, and preserves existing snapshot references.
+
+Results cover at most ten matches in the main document; narrow the selector if truncated. HTML includes only bounded `id`, `class`, and `role` attributes—not full HTML, text, descendants, URLs, values, or event handlers. Form controls, editable regions, scripts, styles, and embedded documents are excluded. Computed styles use a fixed property list, capped at 200 characters each, with CSS URLs omitted. Classes and IDs can still contain sensitive page data; this is not complete secret detection. Arbitrary JavaScript execution is not supported.
 
 - `/browser-connect` (or `/browser-connect connect`) — connect, with guided setup when no bridge is running.
 - `/browser-connect setup chromium` (or `setup chrome`) — register/repair the bridge and show the extension folder without connecting.

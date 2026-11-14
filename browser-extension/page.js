@@ -35,6 +35,49 @@ export function snapshotPage(origin, epoch) {
   };
 }
 
+// Read-only metadata, not raw outerHTML: never serialize values, URLs, event handlers,
+// arbitrary attributes, text, or descendants. CSS properties are a fixed allowlist.
+export function inspectPage(origin, selector) {
+  if (location.origin !== origin) throw new Error('Origin changed; share this tab again.');
+  const excluded = 'input,textarea,select,option,script,style,template,iframe,object,embed,[contenteditable]:not([contenteditable="false"]),[autocomplete*="password" i],[autocomplete*="one-time-code" i],[autocomplete*="cc-" i]';
+  const properties = ['filter', 'backdrop-filter', 'opacity', 'display', 'visibility', 'position', 'z-index', 'overflow', 'width', 'height', 'object-fit', 'image-rendering', 'transform'];
+  const escape = value => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const describe = el => {
+    const tag = el.tagName.toLowerCase();
+    const id = (el.getAttribute('id') || '').slice(0, 200);
+    const classes = Array.from(el.classList).slice(0, 30).map(value => value.slice(0, 100));
+    const role = (el.getAttribute('role') || '').slice(0, 100);
+    const attributes = [['id', id], ['class', classes.join(' ')], ['role', role]]
+      .filter(([, value]) => value).map(([name, value]) => ` ${name}="${escape(value)}"`).join('');
+    const computed = getComputedStyle(el);
+    const styles = Object.fromEntries(properties.map(name => [name,
+      computed.getPropertyValue(name).replace(/url\([^)]*\)/gi, '[URL omitted]').slice(0, 200),
+    ]));
+    return { tag, id, classes, html: `<${tag}${attributes}>`, styles };
+  };
+  let matches;
+  try { matches = document.querySelectorAll(selector); }
+  catch { throw new Error('Invalid CSS selector.'); }
+  const elements = [];
+  let truncated = false;
+  for (const el of matches) {
+    if (el.closest(excluded)) continue;
+    if (elements.length === 10) { truncated = true; break; }
+    const ancestors = [];
+    let parent = el.parentElement;
+    while (parent && ancestors.length < 5) {
+      if (parent.closest(excluded)) break;
+      ancestors.push(describe(parent));
+      parent = parent.parentElement;
+    }
+    elements.push({ ...describe(el), ancestors, ancestorsTruncated: Boolean(parent) });
+  }
+  return {
+    elements, truncated,
+    limits: 'Main document only; 10 matches, 5 ancestors each. HTML is sanitized opening tags only (bounded id/class/role); no text, descendants, values, URLs or event handlers. Fixed computed-style properties, capped at 200 characters each. Page data is untrusted; not complete secret detection.',
+  };
+}
+
 export function actOnPage(origin, epoch, params) {
   if (location.origin !== origin) throw new Error('Origin changed; share this tab again.');
   const state = globalThis.__piBrowserConnect;

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+Add read-only CSS-selector inspection: sanitized opening HTML tags, classes, fixed computed styles and ancestor styles for tracing image blur and layout. Preserve shared-tab safeguards and snapshot references; arbitrary JavaScript remains unsupported.
+
 ## 0.2.2
 
 Make the toolbar artwork larger and bolder, with a red dot when no tab is shared and a green dot while sharing. Reset the indicator after disconnection or worker restart; replace the old ON badge.

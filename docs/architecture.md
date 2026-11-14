@@ -12,6 +12,8 @@ There is one browser host per connected extension instance, one Pi socket owner,
 
 Opening the browser popup starts the native host on demand; it never grants tab access. The popup polls status while open, so pairing does not require a manual refresh. A failed transport is retried only by reopening the popup or clicking Retry bridge. No systemd service or TCP listener is installed. The extension's native port keeps its worker active; worker/host restart loses grants. Disconnect invalidates the grant synchronously before asynchronous debugger detachment.
 
+Read-only `inspect` evaluates fixed code in the same isolated world, accepts only a bounded CSS selector, and returns sanitized opening tags, classes and allowlisted computed styles for up to ten matches and five ancestors each. It never accepts JavaScript or raw CDP commands, serializes no text or arbitrary HTML attributes, and leaves snapshot references intact. Grant/origin and document-loader checks apply before/after inspection.
+
 Snapshots store node references in a CDP isolated world. Navigation, document replacement, DOM mutation, and actions invalidate references. Each request rechecks the grant, origin, and document where applicable. These checks reduce stale actions; they cannot make a live browser atomic against concurrent user/page changes. Do not manually edit the tab while Pi is acting.
 
 ## Local files
