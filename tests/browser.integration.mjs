@@ -74,7 +74,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   }
   server = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    res.end(`<!doctype html><html><head><title>Shared tab fixture</title><style>.blur-parent { filter: blur(8px); }</style></head><body style="font:20px system-ui;padding:48px"><h1>Browser Connect fixture</h1><label>Message <input id="message"></label><button id="save" onclick="document.querySelector('#result').textContent='Saved: '+document.querySelector('#message').value">Save draft</button><p id="result">Not saved</p><input type="password" value="fixture-secret"><a href="http://localhost:${server.address().port}/other">Other origin</a><div class="blur-parent"><img class="picture" role="img" src="/fixture-image-secret.png" onerror="void('fixture-event-secret')" data-private="fixture-data-secret"></div>${'<div class="inspect-match"></div>'.repeat(12)}<div style="height:1200px"></div><p>Bottom</p></body></html>`);
+    res.end(`<!doctype html><html><head><title>Shared tab fixture</title><style>.blur-parent { filter: blur(8px); }</style></head><body style="font:20px system-ui;padding:48px"><h1>Browser Connect fixture</h1><label>Message <input id="message"></label><button id="save" onclick="document.querySelector('#result').textContent='Saved: '+document.querySelector('#message').value">Save draft</button><p id="result">Not saved</p><input type="password" value="fixture-secret"><a href="http://localhost:${server.address().port}/other">Other origin</a><div class="blur-parent"><img class="picture" role="img" style=\'filter:url("https://example.test/a)fixture-url-secret")\' src="/fixture-image-secret.png" onerror="void('fixture-event-secret')" data-private="fixture-data-secret"></div>${'<div class="inspect-match"></div>'.repeat(12)}<div style="height:1200px"></div><p>Bottom</p></body></html>`);
   });
   await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
   const url = `http://127.0.0.1:${server.address().port}/`;
@@ -164,6 +164,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const picture = inspected.elements[0];
   assert.equal(picture.tag, 'img');
   assert.deepEqual(picture.classes, ['picture']);
+  assert.equal(picture.styles.filter, '[URL omitted]');
+  assert.doesNotMatch(JSON.stringify(inspected), /fixture-url-secret/);
   assert.match(picture.html, /^<img(?:\s+(?:id|class|role)="[^"]*")*\s*>$/);
   assert.ok(picture.ancestors.length > 0 && picture.ancestors.length <= 5);
   const parent = picture.ancestors[0];
@@ -181,6 +183,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const bounded = data(await call({ action: 'inspect', selector: 'div' }));
   assert.equal(bounded.elements.length, 10);
   assert.equal(bounded.truncated, true);
+  await assert.rejects(call({ action: 'inspect', selector: 'body:has(input[type="password"][value^="fixture"])' }), /simple CSS/);
   await assert.rejects(call({ action: 'inspect', selector: '[' }), /selector|CSS|invalid/i);
   await assert.rejects(call({ action: 'inspect' }), /selector/i);
   await assert.rejects(call({ action: 'inspect', selector: '   ' }), /selector/i);

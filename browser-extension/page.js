@@ -51,7 +51,7 @@ export function inspectPage(origin, selector) {
       .filter(([, value]) => value).map(([name, value]) => ` ${name}="${escape(value)}"`).join('');
     const computed = getComputedStyle(el);
     const styles = Object.fromEntries(properties.map(name => [name,
-      computed.getPropertyValue(name).replace(/url\([^)]*\)/gi, '[URL omitted]').slice(0, 200),
+      /url\s*\(/i.test(computed.getPropertyValue(name)) ? '[URL omitted]' : computed.getPropertyValue(name).slice(0, 200),
     ]));
     return { tag, id, classes, html: `<${tag}${attributes}>`, styles };
   };
