@@ -78,13 +78,44 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   });
   await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
   const url = `http://127.0.0.1:${server.address().port}/`;
-  context = await chromium.launchPersistentContext(join(home, '.config/chromium'), {
+  const profile = join(home, '.config/chromium');
+  await mkdir(join(profile, 'Default'), { recursive: true });
+  await writeFile(join(profile, 'Default/Preferences'), JSON.stringify({ extensions: { pinned_extensions: [extensionId] } }));
+  context = await chromium.launchPersistentContext(profile, {
     headless: false,
     ...(process.env.BROWSER_CONNECT_CHROMIUM ? { executablePath: process.env.BROWSER_CONNECT_CHROMIUM } : {}),
     env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), PI_BROWSER_CONNECT_DIR: runtime },
     args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
     viewport: { width: 1000, height: 800 },
   });
+  const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
+  // Observe successful real API calls, without replacing icon rendering or grants.
+  await worker.evaluate(() => {
+    globalThis.completedIconPaths = chrome.runtime.getManifest().action.default_icon;
+    const setIcon = chrome.action.setIcon.bind(chrome.action);
+    chrome.action.setIcon = async details => {
+      await setIcon(details);
+      globalThis.completedIconPaths = details.path;
+    };
+  });
+  const indicator = async shared => {
+    const expected = { 16: `icons/icon-${shared ? 'connected-' : ''}16.png`, 32: `icons/icon-${shared ? 'connected-' : ''}32.png` };
+    await eventually(async () => JSON.stringify(await worker.evaluate(() => globalThis.completedIconPaths)) === JSON.stringify(expected));
+    await eventually(async () => await worker.evaluate(() => chrome.action.getTitle({})) === `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}`);
+    assert.equal(await worker.evaluate(() => chrome.action.getBadgeText({})), '');
+    // Verify both resolution variants actually contain the requested status color.
+    const colors = await worker.evaluate(async () => Promise.all(Object.entries(globalThis.completedIconPaths).map(async ([size, path]) => {
+      const bitmap = await createImageBitmap(await (await fetch(chrome.runtime.getURL(path))).blob());
+      const canvas = new OffscreenCanvas(Number(size), Number(size));
+      const drawing = canvas.getContext('2d');
+      drawing.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const center = Math.floor(Number(size) * 104 / 128);
+      return Array.from(drawing.getImageData(center, center, 1, 1).data);
+    })));
+    assert.deepEqual(colors, [16, 32].map(() => shared ? [34, 197, 94, 255] : [239, 68, 68, 255]));
+  };
+  await indicator(false);
   const fixture = await context.newPage();
   await fixture.goto(url);
   const popup = await context.newPage();
@@ -92,6 +123,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await connecting;
   await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
   await assert.rejects(call({ action: 'snapshot' }), /No shared tab/);
+  // A bridge and pairing session are not permission to share: the dot stays red.
+  await indicator(false);
   await command('connect', ctx);
   const code = await popup.locator('#code').textContent();
   assert.match(code, /^\d{6}$/);
@@ -110,9 +143,12 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
     assert.ok(resolve(captures).startsWith('/tmp/'), 'Screenshots must stay under /tmp');
     await mkdir(captures, { recursive: true });
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-pairing.png') });
+    execFileSync('import', ['-window', 'root', join(captures, 'toolbar-disconnected.png')]);
   }
   await popup.evaluate(() => document.querySelector('#share').click());
   await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
+  await indicator(true);
+  if (captures) execFileSync('import', ['-window', 'root', join(captures, 'toolbar-shared.png')]);
   assert.equal(data(await call({ action: 'tabs' })).tabs.length, 1);
   let snapshot = data(await call({ action: 'snapshot' }));
   assert.match(snapshot.text, /Browser Connect fixture/);
@@ -155,6 +191,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   }
   await fixture.goto(`http://localhost:${server.address().port}/other`);
   await eventually(async () => { try { await call({ action: 'snapshot' }); return false; } catch (error) { return /Not connected|revoked|changed|closed/.test(error.message); } });
+  await indicator(false);
+  if (captures) execFileSync('import', ['-window', 'root', join(captures, 'toolbar-revoked.png')]);
   await command('disconnect', ctx);
   await assert.rejects(call({ action: 'tabs' }), /Not connected/);
   assert.ok(confirmations.length >= 6);
