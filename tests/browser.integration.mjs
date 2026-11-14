@@ -105,29 +105,57 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
       }
       return sendCommand(target, method, params);
     };
-    globalThis.completedIconPaths = chrome.runtime.getManifest().action.default_icon;
+    globalThis.completedIconPaths = { global: chrome.runtime.getManifest().action.default_icon };
     const setIcon = chrome.action.setIcon.bind(chrome.action);
     chrome.action.setIcon = async details => {
       await setIcon(details);
-      globalThis.completedIconPaths = details.path;
+      globalThis.completedIconPaths[details.tabId ?? 'global'] = details.path;
     };
   });
+  const redIcon = { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png' };
+  const greenIcon = { 16: 'icons/icon-connected-16.png', 32: 'icons/icon-connected-32.png' };
+  const redPixel = [239, 68, 68, 255];
+  const greenPixel = [34, 197, 94, 255];
   const indicator = async shared => {
-    const expected = { 16: `icons/icon-${shared ? 'connected-' : ''}16.png`, 32: `icons/icon-${shared ? 'connected-' : ''}32.png` };
-    await eventually(async () => JSON.stringify(await worker.evaluate(() => globalThis.completedIconPaths)) === JSON.stringify(expected));
-    await eventually(async () => await worker.evaluate(() => chrome.action.getTitle({})) === `Pi Browser Connect — ${shared ? 'Tab shared' : 'Not sharing'}`);
+    let colors;
+    await eventually(async () => {
+      const state = await worker.evaluate(async () => {
+        const sample = async paths => {
+          if (!paths) return null;
+          return Promise.all(Object.entries(paths).map(async ([size, path]) => {
+            const bitmap = await createImageBitmap(await (await fetch(chrome.runtime.getURL(path))).blob());
+            const canvas = new OffscreenCanvas(Number(size), Number(size));
+            const drawing = canvas.getContext('2d');
+            drawing.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            const center = Math.floor(Number(size) * 104 / 128);
+            return Array.from(drawing.getImageData(center, center, 1, 1).data);
+          }));
+        };
+        const paths = globalThis.completedIconPaths;
+        const tabs = await chrome.tabs.query({});
+        const sharedTabs = [];
+        for (const tab of tabs) {
+          if (await chrome.action.getTitle({ tabId: tab.id }).catch(() => '') !== 'Pi Browser Connect — Tab shared') continue;
+          sharedTabs.push({ path: JSON.stringify(paths[tab.id]), colors: await sample(paths[tab.id]) });
+        }
+        return {
+          globalTitle: await chrome.action.getTitle({}),
+          globalPath: JSON.stringify(paths.global),
+          globalColors: await sample(paths.global),
+          sharedTabs,
+        };
+      });
+      const globalOk = state.globalTitle === 'Pi Browser Connect — Not sharing' && state.globalPath === JSON.stringify(redIcon);
+      const matched = shared
+        ? globalOk && state.sharedTabs.length === 1 && state.sharedTabs[0].path === JSON.stringify(greenIcon)
+        : globalOk && state.sharedTabs.length === 0;
+      if (matched) colors = state;
+      return matched;
+    });
     assert.equal(await worker.evaluate(() => chrome.action.getBadgeText({})), '');
-    // Verify both resolution variants actually contain the requested status color.
-    const colors = await worker.evaluate(async () => Promise.all(Object.entries(globalThis.completedIconPaths).map(async ([size, path]) => {
-      const bitmap = await createImageBitmap(await (await fetch(chrome.runtime.getURL(path))).blob());
-      const canvas = new OffscreenCanvas(Number(size), Number(size));
-      const drawing = canvas.getContext('2d');
-      drawing.drawImage(bitmap, 0, 0);
-      bitmap.close();
-      const center = Math.floor(Number(size) * 104 / 128);
-      return Array.from(drawing.getImageData(center, center, 1, 1).data);
-    })));
-    assert.deepEqual(colors, [16, 32].map(() => shared ? [34, 197, 94, 255] : [239, 68, 68, 255]));
+    assert.deepEqual(colors.globalColors, [redPixel, redPixel]);
+    if (shared) assert.deepEqual(colors.sharedTabs[0].colors, [greenPixel, greenPixel]);
   };
   await indicator(false);
   const fixture = await context.newPage();
@@ -163,6 +191,37 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
   await indicator(true);
   if (captures) execFileSync('import', ['-window', 'root', join(captures, 'toolbar-shared.png')]);
+  // A second window must not inherit the shared-tab toolbar state or popup status.
+  const otherPages = new Set(context.pages());
+  const other = await worker.evaluate(async popupUrl => {
+    const win = await chrome.windows.create({ url: 'about:blank', focused: false, left: 680, top: 0, width: 560, height: 640 });
+    const tabId = win.tabs[0].id;
+    await chrome.tabs.create({ windowId: win.id, url: popupUrl, active: false });
+    return { windowId: win.id, tabId, title: await chrome.action.getTitle({ tabId }) };
+  }, `chrome-extension://${extensionId}/popup.html`);
+  assert.equal(other.title, 'Pi Browser Connect — Not sharing');
+  assert.equal(await worker.evaluate(tabId => globalThis.completedIconPaths[tabId], other.tabId), undefined);
+  let otherPopup;
+  await eventually(() => {
+    otherPopup = context.pages().find(page => !otherPages.has(page) && page.url().includes('/popup.html'));
+    return Boolean(otherPopup);
+  });
+  await eventually(async () => await otherPopup.locator('#badge').textContent() === 'Not this tab');
+  assert.notEqual(await otherPopup.locator('#title').textContent(), 'Currently shared tab');
+  assert.doesNotMatch(await otherPopup.locator('#origin').textContent(), /127\.0\.0\.1/);
+  if (captures) {
+    await worker.evaluate(async windowId => {
+      const windows = await chrome.windows.getAll();
+      const current = windows.find(item => item.id !== windowId);
+      await chrome.windows.update(current.id, { left: 0, top: 0, width: 640, height: 720, focused: true });
+      await chrome.windows.update(windowId, { left: 660, top: 0, width: 560, height: 720, focused: false });
+    }, other.windowId);
+    await otherPopup.locator('main').screenshot({ path: join(captures, 'other-window-popup.png') });
+    await delay(300);
+    execFileSync('import', ['-window', 'root', join(captures, 'two-windows.png')]);
+  }
+  await worker.evaluate(windowId => chrome.windows.remove(windowId), other.windowId);
+  await fixture.bringToFront();
   assert.equal(data(await call({ action: 'tabs' })).tabs.length, 1);
   let snapshot = data(await call({ action: 'snapshot' }));
   assert.match(snapshot.text, /Browser Connect fixture/);

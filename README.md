@@ -73,7 +73,7 @@ Scripts run synchronously in a fresh isolated JavaScript world in the shared mai
 - `/browser-connect disconnect` — revoke access.
 - Browser popup **Disconnect** — revoke immediately, including pending actions.
 
-The toolbar icon shows a **red dot** when no tab is shared and a **green dot** while a tab is shared. A ready bridge or pending pairing alone stays red.
+The toolbar icon shows a **red dot** on every tab until you share one. Only the shared tab shows a **green dot** and the “Tab shared” tooltip; other tabs and windows stay red. A ready bridge or pending pairing alone stays red. Chrome also shows “started debugging this browser” on every window while a tab is shared. That bar belongs to the browser and cannot be limited to one tab or window.
 
 Closing the shared tab, leaving its origin, detaching debugging, closing Pi, switching sessions/branches, or `/reload` revokes sharing. There is no automatic Pi reconnection or tab sharing. Opening the popup starts only the local transport. A cancelled or timed-out action may already have run; never blindly retry it.
 

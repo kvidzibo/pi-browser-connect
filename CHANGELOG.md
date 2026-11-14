@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+Limit the shared indicator to the tab that was shared. Other tabs and browser windows keep the red icon and not-sharing tooltip; their popups no longer say that tab is shared. Chrome’s debugging bar still appears in every window. Browser extension version: 0.4.1.
+
 ## 0.5.0
 
 Add `evaluate` for synchronous JavaScript and DOM/CSS changes in the shared main document. Allow one-call approval or session-wide approval shared with other browser mutations, with an explicit script-risk warning. Bound results, invalidate references, and document sensitive-data/network access and non-rollback limitations. Browser extension version: 0.4.0.
