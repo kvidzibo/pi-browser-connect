@@ -6,16 +6,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:http';
-import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium } from 'playwright-core';
 import { DefaultResourceLoader, SettingsManager } from '@earendil-works/pi-coding-agent';
-import { setup } from '../native-host/install.mjs';
+import { bundledExtensionId } from '../native-host/install.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const extensionPath = join(root, 'browser-extension');
-const manifest = JSON.parse(await readFile(join(extensionPath, 'manifest.json'), 'utf8'));
-const extensionId = createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32).replace(/[0-9a-f]/g, c => String.fromCharCode(97 + parseInt(c, 16)));
+const extensionId = await bundledExtensionId();
 
 async function eventually(fn, timeout = 10000) {
   const end = Date.now() + timeout;
@@ -30,6 +28,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   let server;
   let context;
   const previousDirectory = process.env.PI_BROWSER_CONNECT_DIR;
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
   process.env.PI_BROWSER_CONNECT_DIR = runtime;
   t.after(async () => {
     await context?.close();
@@ -37,11 +37,34 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
       server.closeAllConnections();
       await new Promise(resolveClose => server.close(resolveClose));
     }
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
     if (previousDirectory === undefined) delete process.env.PI_BROWSER_CONNECT_DIR;
     else process.env.PI_BROWSER_CONNECT_DIR = previousDirectory;
     await rm(home, { recursive: true, force: true });
   });
-  await setup('chromium', extensionId, { home });
+  const loader = new DefaultResourceLoader({ cwd: home, agentDir: join(home, 'agent'), settingsManager: SettingsManager.inMemory({ packages: [] }), noExtensions: true, additionalExtensionPaths: [join(root, 'index.ts')], noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true });
+  await loader.reload();
+  assert.deepEqual(loader.getExtensions().errors, []);
+  const extension = loader.getExtensions().extensions[0];
+  const command = extension.commands.get('browser-connect').handler;
+  const tool = extension.tools.get('browser_connect').definition;
+  const notices = [];
+  const confirmations = [];
+  let approve = false;
+  const ctx = { hasUI: true, cwd: home, sessionManager: { getSessionId: () => 'integration-session' }, ui: {
+    notify: message => notices.push(message),
+    select: async (_title, options) => { assert.ok(options.includes('Chromium')); return 'Chromium'; },
+    confirm: async (title, body) => { confirmations.push({ title, body }); return approve; },
+  } };
+  const call = async params => tool.execute('integration', params, new AbortController().signal, undefined, ctx);
+  const data = result => JSON.parse(result.content[0].text.replace(/^UNTRUSTED BROWSER DATA\n/, ''));
+  await assert.rejects(call({ action: 'snapshot' }), /Not connected/);
+  const connecting = command('', ctx);
+  t.after(async () => { await command('disconnect', ctx); await connecting; });
+  await eventually(async () => notices.some(message => message.includes(extensionPath)));
+  const registration = JSON.parse(await readFile(join(home, '.config/chromium/NativeMessagingHosts/com.kvidzibo.pi_browser_connect.json'), 'utf8'));
+  assert.deepEqual(registration.allowed_origins, [`chrome-extension://${extensionId}/`]);
   // Chromium-for-Testing uses its own config root; keep both registrations in the temporary HOME.
   const installed = await readFile(join(home, '.config/chromium/NativeMessagingHosts/com.kvidzibo.pi_browser_connect.json'));
   for (const name of ['google-chrome', 'google-chrome-for-testing']) {
@@ -65,26 +88,10 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await fixture.goto(url);
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  await popup.locator('#connect').click();
-  await eventually(async () => {
-    await popup.locator('#refresh').click();
-    return await popup.locator('#badge').textContent() === 'Bridge ready';
-  });
-  const loader = new DefaultResourceLoader({ cwd: home, agentDir: join(home, 'agent'), settingsManager: SettingsManager.inMemory({ packages: [] }), noExtensions: true, additionalExtensionPaths: [join(root, 'index.ts')], noSkills: true, noThemes: true, noPromptTemplates: true, noContextFiles: true });
-  await loader.reload();
-  assert.deepEqual(loader.getExtensions().errors, []);
-  const extension = loader.getExtensions().extensions[0];
-  const command = extension.commands.get('browser-connect').handler;
-  const tool = extension.tools.get('browser_connect').definition;
-  const notices = [];
-  const confirmations = [];
-  let approve = false;
-  const ctx = { hasUI: true, cwd: home, sessionManager: { getSessionId: () => 'integration-session' }, ui: { notify: message => notices.push(message), confirm: async (title, body) => { confirmations.push({ title, body }); return approve; } } };
-  const call = async params => tool.execute('integration', params, new AbortController().signal, undefined, ctx);
-  const data = result => JSON.parse(result.content[0].text.replace(/^UNTRUSTED BROWSER DATA\n/, ''));
-  await assert.rejects(call({ action: 'snapshot' }), /Not connected/);
+  await connecting;
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
+  await assert.rejects(call({ action: 'snapshot' }), /No shared tab/);
   await command('connect', ctx);
-  await popup.locator('#refresh').click();
   const code = await popup.locator('#code').textContent();
   assert.match(code, /^\d{6}$/);
   assert.ok(notices.some(message => message.includes(code)));
@@ -96,8 +103,13 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   // A real browser shortcut grants activeTab, just like clicking the toolbar icon.
   execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
   await delay(300);
-  await popup.evaluate(() => document.querySelector('#refresh').click());
   await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  const captures = process.env.BROWSER_CONNECT_SCREENSHOTS;
+  if (captures) {
+    assert.ok(resolve(captures).startsWith('/tmp/'), 'Screenshots must stay under /tmp');
+    await mkdir(captures, { recursive: true });
+    await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-pairing.png') });
+  }
   await popup.evaluate(() => document.querySelector('#share').click());
   await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
   assert.equal(data(await call({ action: 'tabs' })).tabs.length, 1);
@@ -134,11 +146,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await call({ action: 'navigate', url: url + 'next' });
   await fixture.waitForURL(url + 'next');
   await call({ action: 'snapshot' });
-  const captures = process.env.BROWSER_CONNECT_SCREENSHOTS;
   if (captures) {
-    assert.ok(resolve(captures).startsWith('/tmp/'), 'Screenshots must stay under /tmp');
-    await mkdir(captures, { recursive: true });
-    await popup.evaluate(() => document.querySelector('#refresh').click());
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-shared.png') });
     await popup.setViewportSize({ width: 320, height: 900 });
     assert.equal(await popup.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

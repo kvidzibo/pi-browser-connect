@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0
+
+Guided `/browser-connect` setup registers the browser bridge from Pi and shows the extension folder. Install directly with `pi install npm:@kvidzibo/pi-browser-connect`; no global npm install or extension ID is needed. The browser popup starts the bridge and updates pairing automatically. Loading the unpacked extension and sharing a tab still require your approval.
+
 ## 0.1.2
 
 Add the Pi browser-window icon to the browser toolbar and extension manager.
