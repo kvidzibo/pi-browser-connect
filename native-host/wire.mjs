@@ -4,7 +4,7 @@ export const NATIVE_IN_MAX = 8 * 1024 * 1024;
 export const NATIVE_OUT_MAX = 512 * 1024;
 export const REQUEST_MAX = 32 * 1024;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export const actions = new Set(['tabs', 'snapshot', 'inspect', 'click', 'type', 'press', 'scroll', 'navigate', 'screenshot']);
+export const actions = new Set(['tabs', 'snapshot', 'inspect', 'click', 'type', 'press', 'scroll', 'navigate', 'screenshot', 'evaluate']);
 export const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 export const keys = (value, required) => object(value) && Object.keys(value).length === required.length && required.every(key => Object.hasOwn(value, key));
 const little = endianness() === 'LE';

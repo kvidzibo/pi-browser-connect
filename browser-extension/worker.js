@@ -93,9 +93,9 @@ async function evaluate(expected, fn, args, contextId) {
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description?.slice(0, 500) || 'Page action failed. Take a fresh snapshot.');
   return result.result?.value;
 }
-async function world(expected) {
+async function world(expected, suffix = '') {
   const current = await frame(expected);
-  const result = await cdp(expected, 'Page.createIsolatedWorld', { frameId: current.id, worldName: `pi-browser-connect-${expected.epoch}` });
+  const result = await cdp(expected, 'Page.createIsolatedWorld', { frameId: current.id, worldName: `pi-browser-connect-${expected.epoch}${suffix}` });
   return { contextId: result.executionContextId, loaderId: current.loaderId };
 }
 async function execute(params, expected) {
@@ -115,6 +115,26 @@ async function execute(params, expected) {
     const result = await evaluate(expected, inspectPage, [expected.origin, params.selector], current.contextId);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during inspection; result discarded.');
     return result;
+  }
+  if (params.action === 'evaluate') {
+    // Invalidate both the browser's reference store and Pi's refs before dispatch.
+    expected.world = undefined;
+    // Do not let scripts alter globals used by snapshot/action safety checks.
+    const current = await world(expected, `-script-${crypto.randomUUID()}`);
+    const result = await cdp(expected, 'Runtime.evaluate', {
+      expression: `(() => {
+        const value = (0, eval)(${JSON.stringify(params.expression)});
+        if (value && typeof value.then === 'function') throw new Error('Return a synchronous value, not a Promise.');
+        const serialized = JSON.stringify(value) ?? String(value);
+        return { result: serialized.slice(0, 12000), truncated: serialized.length > 12000 };
+      })()`,
+      contextId: current.contextId, returnByValue: true, awaitPromise: false,
+      timeout: 5000,
+    });
+    await assertGrant(expected);
+    if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during script execution; result discarded. Side effects may already have occurred.');
+    if (result.exceptionDetails) throw new Error('Browser script failed; side effects may already have occurred. Take a fresh snapshot.');
+    return result.result?.value;
   }
   if (params.action === 'navigate') {
     if (webOrigin(params.url) !== expected.origin) throw new Error('Cross-origin navigation is not allowed. Navigate manually and share the destination again.');
