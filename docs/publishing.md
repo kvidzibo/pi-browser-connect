@@ -2,6 +2,10 @@
 
 This follows the existing kvidzibo Pi packages: versioned npm publication from `main`, GitHub OIDC trusted publishing, no long-lived npm token.
 
+## Bootstrap status
+
+Version `0.1.0` is published on npm. Trusted-publisher verification is pending: `0.1.1` is the first planned GitHub Actions publication with provenance.
+
 ## One-time bootstrap
 
 The package must first exist on npm. From the reviewed release checkout:
@@ -37,4 +41,4 @@ Only an npm `E404` permits a new publication; auth/network errors fail the workf
 
 The ZIP is for **Load unpacked** after extraction, not automatic Chrome Web Store distribution. Browser-store publishing would need a separate developer account and explicit approval.
 
-For the first release, remove the initial-publication notice from README and add the npm and Pi directory links only after verifying they resolve.
+After the first workflow publication, verify the publish job succeeded and the npm version has `dist.attestations` before marking bootstrap complete.

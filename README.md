@@ -2,29 +2,25 @@
 
 Connect [Pi](https://pi.dev) to **one explicitly shared tab in your everyday browser**, with your existing login. No cookie copying, cloud relay, or remote-debugging port.
 
-**Initial release:** GitHub source is available; npm publication requires the maintainer's first-publish authentication and trusted-publisher setup. The intended package name is `@kvidzibo/pi-browser-connect`.
+[npm](https://www.npmjs.com/package/@kvidzibo/pi-browser-connect) · [Pi package catalog](https://pi.dev/packages)
 
 ## Requirements
 
 Linux, Node **22.19+**, Pi **1.5.2+**, and desktop Chrome/Chromium **125+**. Not Firefox, Windows, macOS, incognito, or sandbox-packaged browsers (Snap/Flatpak).
 
-## Install from source
-
-Keep this checkout at a stable path: the native launcher points to it.
+## Install
 
 ```bash
-git clone https://github.com/kvidzibo/pi-browser-connect.git
-cd pi-browser-connect
-npm ci --ignore-scripts
-pi install "$PWD"
-node native-host/install.mjs path
+npm install --global @kvidzibo/pi-browser-connect
+pi install "$(npm root -g)/@kvidzibo/pi-browser-connect"
+pi-browser-connect path
 ```
 
 1. Open `chrome://extensions`, enable **Developer mode**, and **Load unpacked** the `browser-extension` directory printed above.
 2. Register the native host for your browser:
 
    ```bash
-   node native-host/install.mjs setup chromium lmiednaanfkhmeldhmbgimndmmilcibe
+   pi-browser-connect setup chromium lmiednaanfkhmeldhmbgimndmmilcibe
    # Use "chrome" instead of "chromium" for Google Chrome.
    ```
 
@@ -35,16 +31,21 @@ node native-host/install.mjs path
 
 Only the browser popup can grant access. Installation never enables sharing automatically.
 
-After npm publication, the equivalent stable installation is:
+This package is not a Chrome Web Store listing. After an update, reload the browser extension and Pi; rerun setup if Node or the package moves.
+
+### Install from source
+
+Keep the checkout at a stable path: the native launcher points to it.
 
 ```bash
-npm install --global @kvidzibo/pi-browser-connect
-pi install "$(npm root -g)/@kvidzibo/pi-browser-connect"
-pi-browser-connect path
-pi-browser-connect setup chromium lmiednaanfkhmeldhmbgimndmmilcibe
+git clone https://github.com/kvidzibo/pi-browser-connect.git
+cd pi-browser-connect
+npm ci --ignore-scripts
+pi install "$PWD"
+node native-host/install.mjs path
 ```
 
-Load the directory printed by `path` as an unpacked extension. This package is not a Chrome Web Store listing. After an update, reload the browser extension and Pi; rerun setup if Node or the package moves.
+Follow the browser setup and sharing steps above, using `node native-host/install.mjs setup` instead of `pi-browser-connect setup`.
 
 ## Use
 
