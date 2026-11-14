@@ -45,7 +45,7 @@ Ask Pi, for example:
 
 > Use browser_connect to inspect the tab I shared. Summarize it without changing anything.
 
-The `browser_connect` tool supports `tabs`, `snapshot`, `click`, `type`, `press`, `scroll`, `navigate`, and `screenshot`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation require Pi's native confirmation dialog. Noninteractive mutations fail closed.
+The `browser_connect` tool supports `tabs`, `snapshot`, `click`, `type`, `press`, `scroll`, `navigate`, and `screenshot`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab, origin, reference, or sensitive-field restrictions. Noninteractive mutations still fail closed.
 
 - `/browser-connect` (or `/browser-connect connect`) — connect, with guided setup when no bridge is running.
 - `/browser-connect setup chromium` (or `setup chrome`) — register/repair the bridge and show the extension folder without connecting.

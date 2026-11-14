@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.0
+
+Add **Approve all for this session** to the native action approval menu, alongside **Approve once** and **Deny**. Approval resets on disconnect, session/branch change, or reload; browser sharing and safety restrictions remain unchanged.
+
 ## 0.2.2
 
 Make the toolbar artwork larger and bolder, with a red dot when no tab is shared and a green dot while sharing. Reset the indicator after disconnection or worker restart; replace the old ON badge.
