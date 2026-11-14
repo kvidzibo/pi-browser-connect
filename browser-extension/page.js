@@ -39,7 +39,7 @@ export function snapshotPage(origin, epoch) {
 // arbitrary attributes, text, or descendants. CSS properties are a fixed allowlist.
 export function inspectPage(origin, selector) {
   if (location.origin !== origin) throw new Error('Origin changed; share this tab again.');
-  const excluded = 'input,textarea,select,option,script,style,template,iframe,object,embed,[contenteditable]:not([contenteditable="false"]),[autocomplete*="password" i],[autocomplete*="one-time-code" i],[autocomplete*="cc-" i]';
+  const excluded = 'form,button,fieldset,legend,datalist,output,optgroup,input,textarea,select,option,script,style,template,iframe,object,embed,[contenteditable]:not([contenteditable="false"]),[autocomplete*="password" i],[autocomplete*="one-time-code" i],[autocomplete*="cc-" i]';
   const properties = ['filter', 'backdrop-filter', 'opacity', 'display', 'visibility', 'position', 'z-index', 'overflow', 'width', 'height', 'object-fit', 'image-rendering', 'transform'];
   const escape = value => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const describe = el => {
