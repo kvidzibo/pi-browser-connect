@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+Add read-only CSS-selector inspection: sanitized opening HTML tags, classes, fixed computed styles and ancestor styles for tracing image blur and layout. Preserve shared-tab safeguards and snapshot references; arbitrary JavaScript remains unsupported. Browser extension version: 0.3.0.
+
 ## 0.3.0
 
 Add **Approve all for this session** to the native action approval menu, alongside **Approve once** and **Deny**. Approval resets on disconnect, session/branch change, or reload; browser sharing and safety restrictions remain unchanged. Version affected components independently; this Pi-only change leaves the browser extension at 0.2.2.

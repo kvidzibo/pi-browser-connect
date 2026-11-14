@@ -1,4 +1,4 @@
-import { snapshotPage, actOnPage } from './page.js';
+import { snapshotPage, inspectPage, actOnPage } from './page.js';
 import { validateParams, webOrigin, keys } from './policy.js';
 
 let port;
@@ -108,6 +108,12 @@ async function execute(params, expected) {
     const result = await evaluate(expected, snapshotPage, [expected.origin, expected.epoch], current.contextId);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during snapshot. Take another snapshot.');
     expected.world = current;
+    return result;
+  }
+  if (params.action === 'inspect') {
+    const current = await world(expected);
+    const result = await evaluate(expected, inspectPage, [expected.origin, params.selector], current.contextId);
+    if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during inspection; result discarded.');
     return result;
   }
   if (params.action === 'navigate') {
