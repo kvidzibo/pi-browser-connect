@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0
+
+Add `evaluate` for synchronous JavaScript and DOM/CSS changes in the shared main document. Allow one-call approval or session-wide approval shared with other browser mutations, with an explicit script-risk warning. Bound results, invalidate references, and document sensitive-data/network access and non-rollback limitations. Browser extension version: 0.4.0.
+
 ## 0.4.0
 
 Add read-only CSS-selector inspection: sanitized opening HTML tags, classes, fixed computed styles and ancestor styles for tracing image blur and layout. Preserve shared-tab safeguards and snapshot references; arbitrary JavaScript remains unsupported. Browser extension version: 0.3.0.

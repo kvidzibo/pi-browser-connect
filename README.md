@@ -45,11 +45,27 @@ Ask Pi, for example:
 
 > Use browser_connect to inspect the tab I shared. Summarize it without changing anything.
 
-The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, and `screenshot`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab, origin, reference, or sensitive-field restrictions. Noninteractive mutations still fail closed.
+The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, `screenshot`, and `evaluate`. Typing **replaces** an input's text. Clicks, typing, keypresses, navigation, and scripts open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab, origin, or reference checks. Scripts can access sensitive DOM data; the element-level exclusions for inspection and reference-based actions do not sandbox scripts. Noninteractive mutations still fail closed.
 
 For image blur or layout debugging, use `{"action":"inspect","selector":"img"}`. Inspection returns each match's CSS classes, sanitized opening HTML tag, fixed computed styles (including `filter` and `backdrop-filter`), and up to five ancestors. It is read-only, needs no action confirmation, and preserves existing snapshot references.
 
-Selectors support tags, IDs, classes, lists, and basic combinators only; attribute selectors, pseudo-classes, and escapes are rejected to prevent probing excluded fields. Results cover at most ten matches in the main document; narrow the selector if truncated. HTML includes only bounded `id`, `class`, and `role` attributes—not full HTML, text, descendants, URLs, values, or event handlers. Forms and their descendants, form controls, editable regions, scripts, styles, and embedded documents are excluded. Computed styles use a fixed property list, capped at 200 characters each, with any URL-bearing style value omitted. Classes and IDs can still contain sensitive page data; this is not complete secret detection. Arbitrary JavaScript execution is not supported.
+Selectors support tags, IDs, classes, lists, and basic combinators only; attribute selectors, pseudo-classes, and escapes are rejected to prevent probing excluded fields. Results cover at most ten matches in the main document; narrow the selector if truncated. HTML includes only bounded `id`, `class`, and `role` attributes—not full HTML, text, descendants, URLs, values, or event handlers. Forms and their descendants, form controls, editable regions, scripts, styles, and embedded documents are excluded. Computed styles use a fixed property list, capped at 200 characters each, with any URL-bearing style value omitted. Classes and IDs can still contain sensitive page data; this is not complete secret detection. These inspection restrictions do not apply to explicitly approved scripts.
+
+### JavaScript and CSS changes
+
+Use `evaluate` only when you explicitly want scripting. Choose **Approve once** for one script or **Approve all for this session** to allow scripts and other mutations without further prompts until disconnect, session/branch change, or `/reload`. Session approval granted by another mutation also covers scripts. Noninteractive calls still fail closed. The approval menu shows a bounded preview; inspect the full tool call before approving longer scripts.
+
+For example, to remove a CSS blur overlay:
+
+```json
+{"action":"evaluate","expression":"(() => { document.querySelectorAll('.backdrop-blur-xl').forEach(el => el.style.backdropFilter = 'none'); return 'CSS blur removed'; })()"}
+```
+
+Scripts run synchronously in a fresh isolated JavaScript world in the shared main document: DOM APIs work, but the page's JavaScript variables are unavailable. Expressions are limited to 4,000 characters; use an IIFE for statements and return a JSON-serializable value. Results contain JSON text capped at 12,000 characters plus a truncation flag. Promises are not awaited; synchronous execution has a five-second CDP timeout. Take a fresh snapshot afterward, including after errors.
+
+**Scripts are not sandboxed from the page's sensitive data or signed-in requests.** They bypass the element-level exclusions used by inspection and reference-based actions. Never request or return credentials, tokens, payment details, or other secrets. They can change the DOM, send requests, or schedule later work. Denial prevents dispatch, but failure, timeout, cancellation, or disconnect cannot undo changes or guarantee scheduled work stops. Do not automatically retry. Removing CSS cannot recover an image blurred on the server; local CSS changes normally disappear on reload.
+
+### Commands
 
 - `/browser-connect` (or `/browser-connect connect`) — connect, with guided setup when no bridge is running.
 - `/browser-connect setup chromium` (or `setup chrome`) — register/repair the bridge and show the extension folder without connecting.

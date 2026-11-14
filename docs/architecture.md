@@ -8,7 +8,7 @@ Pi tool → private Unix socket → native host → Native Messaging → browser
 - `native-host/`: dependency-free Node host, client, framed protocol, explicit installer.
 - `browser-extension/`: Manifest V3 popup, in-memory grant, fixed CDP actions and isolated-world DOM snapshots.
 
-There is one browser host per connected extension instance, one Pi socket owner, and one shared tab. Other profiles/instances must disconnect before connecting Pi. A second session cannot replace the owner. Native messages are versioned at handshake and bound to session/request IDs; there are no browser-action retries or raw JavaScript/CDP tools.
+There is one browser host per connected extension instance, one Pi socket owner, and one shared tab. Other profiles/instances must disconnect before connecting Pi. A second session cannot replace the owner. Native messages are versioned at handshake and bound to session/request IDs; there are no browser-action retries or raw CDP tools. The `evaluate` action accepts explicitly approved JavaScript.
 
 Opening the browser popup starts the native host on demand; it never grants tab access. The popup polls status while open, so pairing does not require a manual refresh. A failed transport is retried only by reopening the popup or clicking Retry bridge. No systemd service or TCP listener is installed. The extension's native port keeps its worker active; worker/host restart loses grants. Disconnect invalidates the grant synchronously before asynchronous debugger detachment.
 
@@ -17,6 +17,8 @@ Read-only `inspect` evaluates fixed code in the same isolated world, accepts onl
 Snapshots store node references in a CDP isolated world. Navigation, document replacement, DOM mutation, and actions invalidate references. Each request rechecks the grant, origin, and document where applicable. These checks reduce stale actions; they cannot make a live browser atomic against concurrent user/page changes. Do not manually edit the tab while Pi is acting.
 
 Action approval is held only in the Pi extension's memory. The native selector defaults to Deny and offers one-action or session approval. Disconnect, a new connection, session shutdown/tree navigation, and reload reset it. Approval is recorded only after cancellation and connection-identity checks; automatic approval still requires an interactive UI and valid references. Browser-side grants and policy checks remain independent.
+
+`evaluate` shares the same one-action/session Pi approval as other mutations. Session approval granted from any mutation covers scripts too; the approval menu warns about their sensitive-data and signed-in-request authority. Interactive UI and connection checks still apply, and disconnect/session changes/reload reset approval. It executes at most 4,000 characters of synchronous JavaScript in a fresh isolated main-document world, separate from snapshot/action globals. JSON-text results are capped at 12,000 characters inside the browser; CDP bounds synchronous execution to five seconds. Promises are not awaited. Grant/origin and document-loader checks surround execution; results from changed documents are discarded. References are consumed before dispatch, including on failure. Isolation separates JavaScript globals, not DOM data or network authority: approved scripts can read sensitive fields, send authenticated requests, or schedule effects that survive completion/revocation. No script sandbox or rollback is claimed.
 
 ## Local files
 
