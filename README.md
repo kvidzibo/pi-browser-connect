@@ -11,27 +11,20 @@ Linux, Node **22.19+**, Pi **1.5.2+**, and desktop Chrome/Chromium **125+**. Not
 ## Install
 
 ```bash
-npm install --global @kvidzibo/pi-browser-connect
-pi install "$(npm root -g)/@kvidzibo/pi-browser-connect"
-pi-browser-connect path
+pi install npm:@kvidzibo/pi-browser-connect
 ```
 
-1. Open `chrome://extensions`, enable **Developer mode**, and **Load unpacked** the `browser-extension` directory printed above.
-2. Register the native host for your browser:
+1. In Pi, run `/reload`, then `/browser-connect`.
+2. Choose **Chromium** or **Google Chrome**. Pi registers the local bridge and prints the browser-extension folder—no terminal setup command or extension ID needed.
+3. Open `chrome://extensions`, enable **Developer mode**, and **Load unpacked** that folder.
+4. On the tab you want to share, click **Pi Browser Connect** in your browser toolbar (or **Ctrl+Shift+Y**). The bridge starts and the popup updates automatically.
+5. Compare the pairing code with Pi and click **Share this tab with Pi**.
 
-   ```bash
-   pi-browser-connect setup chromium lmiednaanfkhmeldhmbgimndmmilcibe
-   # Use "chrome" instead of "chromium" for Google Chrome.
-   ```
-
-3. In Pi, run `/reload`.
-4. Click **Pi Browser Connect** in your browser toolbar (or **Ctrl+Shift+Y**) and **Start local bridge**.
-5. In Pi, run `/browser-connect connect`.
-6. On the tab you want to share, reopen the browser popup, **Refresh**, compare the pairing code, and click **Share this tab with Pi**.
+Pi waits up to two minutes for the popup. If setup takes longer, run `/browser-connect` again and choose **Already registered**. Once installed, open the popup, run `/browser-connect`, and share; no setup is needed again.
 
 Only the browser popup can grant access. Installation never enables sharing automatically.
 
-This package is not a Chrome Web Store listing. After an update, reload the browser extension and Pi; rerun setup if Node or the package moves.
+This package is not a Chrome Web Store listing: Chromium requires you to load the unpacked extension yourself. After an update, reload the browser extension and Pi. If Node or the package moves, run `/browser-connect setup chromium` (or `setup chrome`), then reload the extension from the current folder Pi prints.
 
 ### Install from source
 
@@ -42,10 +35,9 @@ git clone https://github.com/kvidzibo/pi-browser-connect.git
 cd pi-browser-connect
 npm ci --ignore-scripts
 pi install "$PWD"
-node native-host/install.mjs path
 ```
 
-Follow the browser setup and sharing steps above, using `node native-host/install.mjs setup` instead of `pi-browser-connect setup`.
+Follow the guided setup above. The standalone CLI remains available for manual setup: `node native-host/install.mjs setup chromium` (or `chrome`); `node native-host/install.mjs path` prints the browser-extension folder.
 
 ## Use
 
@@ -55,11 +47,13 @@ Ask Pi, for example:
 
 The `browser_connect` tool supports `tabs`, `snapshot`, `click`, `type`, `press`, `scroll`, `navigate`, and `screenshot`. Typing **replaces** an input's text. Clicks, typing, keypresses, and navigation require Pi's native confirmation dialog. Noninteractive mutations fail closed.
 
+- `/browser-connect` (or `/browser-connect connect`) — connect, with guided setup when no bridge is running.
+- `/browser-connect setup chromium` (or `setup chrome`) — register/repair the bridge and show the extension folder without connecting.
 - `/browser-connect status` — bridge connection status and pairing code.
 - `/browser-connect disconnect` — revoke access.
 - Browser popup **Disconnect** — revoke immediately, including pending actions.
 
-Closing the shared tab, leaving its origin, detaching debugging, closing Pi, switching sessions/branches, or `/reload` revokes sharing. There is no automatic reconnection. A cancelled or timed-out action may already have run; never blindly retry it.
+Closing the shared tab, leaving its origin, detaching debugging, closing Pi, switching sessions/branches, or `/reload` revokes sharing. There is no automatic Pi reconnection or tab sharing. Opening the popup starts only the local transport. A cancelled or timed-out action may already have run; never blindly retry it.
 
 ## Privacy and limitations
 

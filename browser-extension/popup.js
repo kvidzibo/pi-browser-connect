@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 let current;
 let tab;
-$('setup').textContent = 'pi-browser-connect setup chromium ' + chrome.runtime.id;
+let sending = false;
 
 async function render(state) {
   current = state;
@@ -10,7 +10,7 @@ async function render(state) {
   document.body.classList.toggle('pending', Boolean(state.session) && !shared);
   $('badge').textContent = shared ? 'Tab shared' : state.session ? 'Awaiting your permission' : state.ready ? 'Bridge ready' : 'Not connected';
   $('badge').classList.toggle('active', shared);
-  $('status').textContent = shared ? 'Session: ' + state.session.label + '. Disconnect at any time.' : state.session ? 'Verify the session below before sharing.' : state.ready ? 'Run /browser-connect connect in Pi, then refresh here.' : 'Start the bridge after completing setup below.';
+  $('status').textContent = shared ? 'Session: ' + state.session.label + '. Disconnect at any time.' : state.session ? 'Verify the session below before sharing.' : state.ready ? 'Run /browser-connect in Pi. This popup updates automatically.' : 'In Pi, run /browser-connect to set up the bridge, then reopen this popup.';
   $('pairing').hidden = !state.session || shared;
   $('session').textContent = state.session?.label || '';
   $('code').textContent = state.session?.code || '';
@@ -28,6 +28,8 @@ async function render(state) {
 }
 
 async function send(action) {
+  if (sending) return;
+  sending = true;
   const buttons = Array.from(document.querySelectorAll('button'));
   buttons.forEach(button => { button.disabled = true; });
   try {
@@ -38,6 +40,7 @@ async function send(action) {
     $('error').hidden = false;
     $('error').textContent = error.message;
   } finally {
+    sending = false;
     buttons.forEach(button => { button.disabled = false; });
     $('share').disabled = !tab?.url?.match(/^https?:\/\//) || tab.incognito;
   }
@@ -45,5 +48,10 @@ async function send(action) {
 $('connect').onclick = () => send('connect');
 $('share').onclick = () => send('share');
 $('disconnect').onclick = () => send('disconnect');
-$('refresh').onclick = () => send('status');
-await send('status');
+// Opening the popup starts only the transport, never tab sharing.
+await send('connect');
+async function refresh() {
+  await send('status');
+  setTimeout(refresh, 500);
+}
+setTimeout(refresh, 500);

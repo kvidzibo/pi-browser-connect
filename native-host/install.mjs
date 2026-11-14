@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { mkdir, lstat, readFile, writeFile, chmod } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -10,6 +11,12 @@ const description = 'Pi Browser Connect managed native host';
 const marker = '# pi-browser-connect managed launcher v1\n';
 export const extensionPath = resolve(dirname(fileURLToPath(import.meta.url)), '../browser-extension');
 export const shellQuote = value => `'${value.replaceAll("'", "'\\''")}'`;
+
+export async function bundledExtensionId() {
+  const manifest = JSON.parse(await readFile(join(extensionPath, 'manifest.json'), 'utf8'));
+  return createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32)
+    .replace(/[0-9a-f]/g, c => String.fromCharCode(97 + parseInt(c, 16)));
+}
 
 async function existing(path) {
   try {
@@ -49,8 +56,8 @@ export async function setup(browser, extensionId, { home = homedir(), platform =
 
 export async function main(args = process.argv.slice(2)) {
   if (args.length === 1 && args[0] === 'path') { process.stdout.write(extensionPath + '\n'); return; }
-  if (args.length === 3 && args[0] === 'setup') { await setup(args[1], args[2]); return; }
-  throw new Error('Usage: pi-browser-connect path | setup chromium|chrome EXTENSION_ID');
+  if ([2, 3].includes(args.length) && args[0] === 'setup') { await setup(args[1], args[2] ?? await bundledExtensionId()); return; }
+  throw new Error('Usage: pi-browser-connect path | setup chromium|chrome [EXTENSION_ID]');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {

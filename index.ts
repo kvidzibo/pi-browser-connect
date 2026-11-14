@@ -1,7 +1,9 @@
 import { basename } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { Type } from 'typebox';
 import { truncateHead, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { BrowserClient } from './native-host/client.mjs';
+import { setup, bundledExtensionId, extensionPath } from './native-host/install.mjs';
 import { actions, validateParams } from './browser-extension/policy.js';
 
 const parameters = Type.Object({
@@ -18,11 +20,10 @@ type Result = { image?: string; mimeType?: string; elements?: Array<{ ref: strin
 
 export default function browserConnect(pi: ExtensionAPI) {
   let client: BrowserClient | undefined;
-  let connecting = false;
-  let generation = 0;
+  let pending: AbortController | undefined;
   let elements = new Map<string, string>();
   const disconnect = () => {
-    generation++;
+    pending?.abort();
     client?.close();
     client = undefined;
     elements.clear();
@@ -31,35 +32,80 @@ export default function browserConnect(pi: ExtensionAPI) {
   pi.on('session_tree', disconnect);
 
   pi.registerCommand('browser-connect', {
-    description: 'Connect to your browser: connect | status | disconnect',
-    getArgumentCompletions: prefix => ['connect', 'status', 'disconnect'].filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })),
+    description: 'Guided browser connection, setup chromium|chrome, status, disconnect',
+    getArgumentCompletions: prefix => ['connect', 'setup chromium', 'setup chrome', 'status', 'disconnect'].filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })),
     async handler(args, ctx) {
       if (!ctx.hasUI) throw new Error('Browser connection requires an interactive Pi terminal or approval-capable RPC client.');
-      const action = args.trim() || 'status';
+      const [action = 'connect', browser, ...extra] = args.trim().split(/\s+/).filter(Boolean);
+      if (extra.length || (browser && (action !== 'setup' || !['chromium', 'chrome'].includes(browser))) || !['connect', 'setup', 'status', 'disconnect'].includes(action)) {
+        ctx.ui.notify('Usage: /browser-connect [connect | setup [chromium|chrome] | status | disconnect]', 'warning');
+        return;
+      }
       if (action === 'disconnect') {
         disconnect();
         ctx.ui.notify('Browser disconnected; tab access revoked.', 'info');
-      } else if (action === 'connect') {
-        if (client?.connected) {
-          ctx.ui.notify(`Already connected. Pairing code: ${client.code}. Compare it in the browser extension.`, 'info');
-          return;
-        }
-        if (connecting) throw new Error('A connection is already pending.');
-        connecting = true;
-        const currentGeneration = generation;
+        return;
+      }
+      if (action === 'status') {
+        ctx.ui.notify(client?.connected ? `Connected to browser bridge. Pairing code: ${client.code}. Check the browser extension for tab sharing status.` : pending ? 'Waiting for browser. Open its toolbar popup, or /browser-connect disconnect to cancel.' : 'Disconnected. Run /browser-connect for guided setup and connection.', 'info');
+        return;
+      }
+      if (pending) throw new Error('A connection or setup is already pending. Use /browser-connect disconnect to cancel.');
+      if (action === 'connect' && client?.connected) {
+        ctx.ui.notify(`Already connected. Pairing code: ${client.code}. Compare it in the browser extension.`, 'info');
+        return;
+      }
+      const controller = new AbortController();
+      pending = controller;
+      const { signal } = controller;
+      const register = async (selected: string) => {
+        const id = await bundledExtensionId();
+        signal.throwIfAborted();
+        await setup(selected, id);
+        signal.throwIfAborted();
+        return `Local bridge registered for ${selected}. In chrome://extensions, enable Developer mode and Load unpacked:\n${extensionPath}\nThen open Pi Browser Connect on the tab you want to share.`;
+      };
+      const run = async () => {
         try {
-          const connection = await BrowserClient.connect(`${preview(basename(ctx.cwd), 60)} · ${ctx.sessionManager.getSessionId().slice(0, 8)}`);
-          if (generation !== currentGeneration) {
-            connection.close();
+          if (action === 'setup') {
+            const selected = browser || await ctx.ui.select('Register local browser bridge for:', ['Chromium', 'Google Chrome'], { signal });
+            if (!selected || signal.aborted) return;
+            ctx.ui.notify(await register(selected === 'Google Chrome' ? 'chrome' : selected.toLowerCase()), 'info');
             return;
           }
-          client = connection;
-          elements.clear();
-          ctx.ui.notify(`Pairing code: ${client.code}. Open Pi Browser Connect, refresh, compare the code, and share your tab. Page content and screenshots may reach your model provider.`, 'info');
-        } finally { connecting = false; }
-      } else if (action === 'status') {
-        ctx.ui.notify(client?.connected ? `Connected to browser bridge. Pairing code: ${client.code}. Check the browser extension for tab sharing status.` : 'Disconnected. Start the local bridge in the browser extension, then run /browser-connect connect.', 'info');
-      } else ctx.ui.notify('Usage: /browser-connect connect | status | disconnect', 'warning');
+          const label = `${preview(basename(ctx.cwd), 60)} · ${ctx.sessionManager.getSessionId().slice(0, 8)}`;
+          let deadline = 0;
+          for (;;) {
+            signal.throwIfAborted();
+            try {
+              const connection = await BrowserClient.connect(label, { signal });
+              if (signal.aborted) { connection.close(); return; }
+              client = connection;
+              elements.clear();
+              ctx.ui.notify(`Pairing code: ${client.code}. Open Pi Browser Connect, compare the code, and share your tab. Page content and screenshots may reach your model provider.`, 'info');
+              return;
+            } catch (error) {
+              if (!(error instanceof Error) || !('code' in error) || error.code !== 'NO_HOST') throw error;
+            }
+            if (!deadline) {
+              const selected = await ctx.ui.select('No browser bridge running. Register it for:', ['Chromium', 'Google Chrome', 'Already registered — wait for browser popup'], { signal });
+              if (!selected || signal.aborted) return;
+              const instructions = selected === 'Already registered — wait for browser popup' ? 'Open Pi Browser Connect in your browser toolbar.' : await register(selected === 'Chromium' ? 'chromium' : 'chrome');
+              ctx.ui.notify(`${instructions}\nWaiting up to 2 minutes; /browser-connect disconnect cancels.`, 'info');
+              deadline = Date.now() + 120_000;
+            }
+            if (Date.now() >= deadline) throw new Error('No browser bridge appeared. Open the browser popup, check its setup error, then run /browser-connect again.');
+            await delay(500, undefined, { signal });
+          }
+        } catch (error) {
+          if (!signal.aborted) throw error;
+        } finally { pending = undefined; }
+      };
+      // Pi serializes submitted commands. Discovery must not block disconnect/reload.
+      if (action === 'setup') await run();
+      else void run().catch(error => {
+        if (!signal.aborted) ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
+      });
     },
   });
 

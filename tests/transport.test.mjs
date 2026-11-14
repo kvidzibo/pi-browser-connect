@@ -281,6 +281,9 @@ test('setup is explicit, validates input, quotes absolute paths, reinstalls owne
   assert.equal(await readFile(paths.launcher, 'utf8'), script);
   await writeFile(paths.launcher, '# unrelated');
   await assert.rejects(setup('chrome', extensionId, { home }), /unrelated launcher/);
+  await run(process.execPath, ['native-host/install.mjs', 'setup', 'chrome'], { env: { ...process.env, HOME: join(root, 'cli-home') } });
+  const cliManifest = JSON.parse(await readFile(join(root, 'cli-home/.config/google-chrome/NativeMessagingHosts', `${HOST_NAME}.json`), 'utf8'));
+  assert.deepEqual(cliManifest.allowed_origins, ['chrome-extension://lmiednaanfkhmeldhmbgimndmmilcibe/']);
   assert.equal((await run(process.execPath, ['native-host/install.mjs', 'path'])).stdout.trim(), extensionPath);
   assert.equal(isAbsolute(extensionPath), true);
 });

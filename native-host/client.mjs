@@ -7,6 +7,7 @@ import { lineReader, writeLine, NATIVE_IN_MAX, REQUEST_MAX, UUID, keys, object, 
 
 const uncertainty = 'Browser request may already have run; do not retry automatically';
 const aborted = () => new Error('Browser connection aborted');
+const noHost = () => Object.assign(new Error('No live browser host'), { code: 'NO_HOST' });
 
 function dial(path, signal, timeout) {
   return new Promise((resolve, reject) => {
@@ -43,7 +44,7 @@ export class BrowserClient {
     const deadline = Date.now() + 5000;
     const directory = runtimeDirectory();
     try { await checkRuntimeDirectory(directory); }
-    catch (error) { if (error.code === 'ENOENT') throw new Error('No live browser host'); throw error; }
+    catch (error) { if (error.code === 'ENOENT') throw noHost(); throw error; }
     const candidates = (await readdir(directory)).filter(name => name.endsWith('.sock'));
     const live = (await Promise.all(candidates.map(async name => {
       const path = join(directory, name);
@@ -60,7 +61,7 @@ export class BrowserClient {
         throw error;
       }
     }))).filter(Boolean);
-    if (live.length !== 1) throw new Error(live.length ? 'Multiple live browser hosts; close all but one' : 'No live browser host');
+    if (live.length !== 1) throw live.length ? new Error('Multiple live browser hosts; close all but one') : noHost();
     const socket = await dial(live[0], signal, deadline - Date.now());
     const client = new BrowserClient(socket);
     const onAbort = () => client.#fail(aborted());
