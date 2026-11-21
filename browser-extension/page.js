@@ -1,9 +1,9 @@
 // These functions run in a named CDP isolated world, never in the page's JS world.
 // Keep them self-contained: only fixed code and JSON arguments cross that boundary.
-export function snapshotPage(epoch) {
+// The worker supplies the ID: crypto.randomUUID() is unavailable on insecure HTTP pages.
+export function snapshotPage(epoch, id) {
   const previous = globalThis.__piBrowserConnect;
   previous?.observer.disconnect();
-  const id = crypto.randomUUID();
   const state = { epoch, id, url: location.href, refs: new Map(), dirty: false };
   const visible = (el) => {
     const rect = el.getBoundingClientRect();

@@ -109,6 +109,8 @@ async function evaluate(expected, fn, args, contextId) {
 async function world(expected, suffix = '') {
   const current = await frame(expected);
   const result = await cdp(expected, 'Page.createIsolatedWorld', { frameId: current.id, worldName: `pi-browser-connect-${expected.epoch}${suffix}` });
+  // Frame IDs survive navigation: make sure the world belongs to the checked document.
+  if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Take a fresh snapshot.');
   return { contextId: result.executionContextId, loaderId: current.loaderId };
 }
 async function execute(params, expected) {
@@ -126,7 +128,7 @@ async function execute(params, expected) {
   }
   if (params.action === 'snapshot') {
     const current = await world(expected);
-    const result = await evaluate(expected, snapshotPage, [expected.epoch], current.contextId);
+    const result = await evaluate(expected, snapshotPage, [expected.epoch, crypto.randomUUID()], current.contextId);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during snapshot. Take another snapshot.');
     expected.world = current;
     return result;
@@ -221,13 +223,21 @@ async function share(tabId, sessionId, expectedPage) {
       }
     }
     attached = true;
-    if (owner !== session) throw new Error('Pi disconnected while sharing.');
-    grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
-    await cdp(grant, 'Page.enable');
-    await frame(grant);
+    // Finish setup before publishing the grant, so no request can act earlier.
+    const send = (method, params) => chrome.debugger.sendCommand({ tabId }, method, params);
+    await send('Page.enable');
+    for (let tries = 0; blank; tries++) {
+      const { frameTree } = await send('Page.getFrameTree');
+      if (frameTree.frame.url === 'about:blank') break;
+      if (tries >= 30) throw new Error('Unable to open a blank page in this tab.');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
     // Keep the page focused and visible to itself, so timers, focus and key events
     // work while the user is in another tab, window or workspace.
-    await cdp(grant, 'Emulation.setFocusEmulationEnabled', { enabled: true });
+    await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    if (owner !== session) throw new Error('Pi disconnected while sharing.');
+    grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
+    await frame(grant);
     lastError = '';
     updateIcon();
   } catch (error) {

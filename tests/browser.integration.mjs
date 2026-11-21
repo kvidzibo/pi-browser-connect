@@ -91,7 +91,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
     headless: false,
     ...(process.env.BROWSER_CONNECT_CHROMIUM ? { executablePath: process.env.BROWSER_CONNECT_CHROMIUM } : {}),
     env: { ...process.env, HOME: home, XDG_CONFIG_HOME: join(home, '.config'), PI_BROWSER_CONNECT_DIR: runtime },
-    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`],
+    args: [`--disable-extensions-except=${extensionPath}`, `--load-extension=${extensionPath}`, '--host-resolver-rules=MAP insecure.test 127.0.0.1'],
     viewport: { width: 1000, height: 800 },
   });
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
@@ -331,6 +331,14 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await call({ action: 'navigate', url: url + 'next' });
   await fixture.waitForURL(url + 'next');
   assert.deepEqual(data(await call({ action: 'tabs' })).tabs, [{ title: 'Shared tab fixture', url: url + 'next' }]);
+  // Plain HTTP sites are not secure contexts; references must still work there.
+  const insecure = `http://insecure.test:${server.address().port}/`;
+  await call({ action: 'navigate', url: insecure });
+  await fixture.waitForURL(insecure);
+  assert.equal(await fixture.evaluate(() => isSecureContext), false);
+  snapshot = data(await call({ action: 'snapshot' }));
+  await call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Insecure' });
+  assert.equal(await fixture.locator('#message').inputValue(), 'Insecure');
   // A failed load is reported and keeps the tab shared.
   await assert.rejects(call({ action: 'navigate', url: 'http://127.0.0.1:1/' }), /Navigation failed/);
   await assert.rejects(call({ action: 'snapshot' }), /failed to load/);
