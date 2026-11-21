@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0
+
+Add **Share in a separate window** to the browser popup. It moves the shared tab to its own window without a tab strip or toolbar, so links opened from other apps no longer land in—or raise—the window Pi is working in. Disconnect from the popup in any other window, or close the separate window. Reload the browser extension. Browser extension version: 0.7.0.
+
 ## 0.7.0
 
 Show what Pi is doing: the element Pi clicks, types into, or sends a key to is highlighted in the shared tab for about 0.4 seconds. The highlight is drawn by the browser's debugging overlay, not added to the page, so pages cannot see it and it never appears in Pi's snapshots or screenshots. Each highlighted action takes about 0.4 seconds longer. Reload the browser extension and share the tab again. Browser extension version: 0.6.0.

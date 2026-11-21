@@ -73,6 +73,8 @@ Sharing follows the tab, not a site. Pi can `navigate` the shared tab to any HTT
 
 The shared tab does not need focus. Put it in its own window and keep working elsewhere: Pi can navigate, read, click, type, press keys, and take screenshots while the window is unfocused, covered, on another workspace, or while the tab is in the background. The extension enables Chromium's focus emulation for the shared tab, so the page sees itself as visible and focused and its timers are not throttled. Pi's actions do not raise the window or take keyboard focus.
 
+Chromium opens links from other apps in the browser window you used last, and raises it. To keep those links out of Pi's window, choose **Share in a separate window** instead of **Share this tab with Pi**: the tab moves to its own window with no tab strip or toolbar, which Chromium never picks for outside links. To stop sharing, click **Disconnect** in the popup of any other window, or close the separate window. The tab stays in that window after disconnecting. Tabs opened by the page itself still open in one of your normal windows.
+
 Tabs or windows opened by a page are not shared. A page dialog (`alert`, `confirm`, print) blocks the tab until you dismiss it. A minimized window is untested.
 
 ### Commands

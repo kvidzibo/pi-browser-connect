@@ -24,7 +24,7 @@ async function eventually(fn, timeout = 15000) {
   throw new Error('Timed out waiting for browser state');
 }
 
-test('shared new tab works unfocused, on another workspace, and as a background tab without taking focus', { timeout: 90000 }, async t => {
+test('shared new tab works unfocused, on another workspace, and as a background tab without taking focus, and keeps outside links out of a separate window', { timeout: 90000 }, async t => {
   const home = await mkdtemp(join(tmpdir(), 'pi-browser-connect-bg-'));
   const previous = { HOME: process.env.HOME, PI_BROWSER_CONNECT_DIR: process.env.PI_BROWSER_CONNECT_DIR };
   process.env.HOME = home;
@@ -70,7 +70,7 @@ test('shared new tab works unfocused, on another workspace, and as a background 
   const tool = extension.tools.get('browser_connect').definition;
   const ctx = { hasUI: true, cwd: home, sessionManager: { getSessionId: () => 'background-session' }, ui: { notify: () => {}, select: async (_title, options) => options.includes('Chromium') ? 'Chromium' : 'Approve all for this session' } };
   const call = async params => JSON.parse((await tool.execute('background', params, new AbortController().signal, undefined, ctx)).content[0].text.replace(/^UNTRUSTED BROWSER DATA\n/, ''));
-  const connecting = command('', ctx);
+  let connecting = command('', ctx);
   disconnect = async () => { await command('disconnect', ctx); await connecting; };
   const profile = join(home, '.config/chromium');
   await eventually(async () => Boolean(await readFile(join(profile, hostManifest))));
@@ -80,7 +80,9 @@ test('shared new tab works unfocused, on another workspace, and as a background 
   }
 
   // Like Playwright's default, run without the Chromium sandbox: CI runners restrict user namespaces.
-  const browser = spawn(process.env.BROWSER_CONNECT_CHROMIUM || chromium.executablePath(), [`--user-data-dir=${profile}`, '--remote-debugging-port=0', `--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`, '--disable-features=DisableLoadExtensionCommandLineSwitch', '--no-first-run', '--no-default-browser-check', '--password-store=basic', '--no-sandbox', `http://127.0.0.1:${port}/user`], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...wmEnv, HOME: home, XDG_CONFIG_HOME: join(home, '.config') } });
+  const binary = process.env.BROWSER_CONNECT_CHROMIUM || chromium.executablePath();
+  const browserEnv = { ...wmEnv, HOME: home, XDG_CONFIG_HOME: join(home, '.config') };
+  const browser = spawn(binary, [`--user-data-dir=${profile}`, '--remote-debugging-port=0', `--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`, '--disable-features=DisableLoadExtensionCommandLineSwitch', '--no-first-run', '--no-default-browser-check', '--password-store=basic', '--no-sandbox', `http://127.0.0.1:${port}/user`], { stdio: ['ignore', 'ignore', 'pipe'], env: browserEnv });
   children.push(browser);
   let browserErrors = '';
   browser.stderr.on('data', data => { browserErrors = (browserErrors + data).slice(-2000); });
@@ -146,4 +148,27 @@ test('shared new tab works unfocused, on another workspace, and as a background 
   await popup(`chrome.tabs.create({ windowId: ${windowId}, url: 'http://127.0.0.1:${port}/cover', active: true }).then(() => 0)`);
   await delay(500);
   await work('background tab', `http://127.0.0.1:${port}`);
+
+  // Shared in a separate window: a link you open from another app must land in one of
+  // your windows, even when Pi's window is the one you used last.
+  await command('disconnect', ctx);
+  connecting = command('', ctx);
+  await connecting;
+  await eventually(async () => await popup(`document.querySelector('#badge').textContent`) === 'Awaiting your permission');
+  const windows = () => popup(`chrome.windows.getAll({ populate: true }).then(all => all.map(win => ({ id: win.id, type: win.type, tabs: win.tabs.length })))`);
+  const before = await windows();
+  await popup(`document.querySelector('#separate').click()`);
+  let separate;
+  await eventually(async () => { separate = (await windows()).find(win => !before.some(old => old.id === win.id)); return Boolean(separate); });
+  assert.deepEqual({ type: separate.type, tabs: separate.tabs }, { type: 'popup', tabs: 1 });
+  await eventually(async () => await popup(`document.querySelector('#badge').textContent`) === 'Not this tab');
+  assert.deepEqual((await call({ action: 'tabs' })).tabs.map(tab => tab.url), ['about:blank']);
+  await popup(`chrome.windows.update(${separate.id}, { focused: true }).then(() => 0)`);
+  await eventually(() => focused().startsWith('about:blank'));
+  // A second launch hands its URL to the running browser, as a link clicked in another app does.
+  execFileSync(binary, [`--user-data-dir=${profile}`, '--no-sandbox', `http://127.0.0.1:${port}/link`], { env: browserEnv, stdio: 'ignore' });
+  const count = all => all.reduce((sum, win) => sum + win.tabs, 0);
+  await eventually(async () => count(await windows()) === count(before) + 1);
+  assert.equal((await windows()).find(win => win.id === separate.id).tabs, 1, 'the link must not open in the shared window');
+  assert.deepEqual((await call({ action: 'tabs' })).tabs.map(tab => tab.url), ['about:blank']);
 });
