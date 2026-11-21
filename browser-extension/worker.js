@@ -132,6 +132,7 @@ async function execute(params, expected) {
     }
     const page = sharedPage(current.url);
     const { targetInfo } = await cdp(expected, 'Target.getTargetInfo');
+    if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Try again.');
     return { tabs: [{ title: targetInfo.title?.slice(0, 300), url: page === 'about:blank' ? page : page + new URL(current.url).pathname }] };
   }
   if (params.action === 'snapshot') {
@@ -224,16 +225,15 @@ async function share(tabId, sessionId, expectedPage) {
     const blank = tab.url === undefined;
     if (blank) await chrome.tabs.update(tabId, { url: 'about:blank' });
     for (let tries = 0; ; tries++) {
+      if (owner !== session) throw new Error('Pi disconnected while sharing.');
       try { await chrome.debugger.attach({ tabId }, '1.3'); break; }
       catch (error) {
         // New-tab and internal pages stay undebuggable until about:blank commits.
         if (!blank || tries >= 30) throw error;
         await new Promise(resolve => setTimeout(resolve, 100));
-        if (owner !== session) throw new Error('Pi disconnected while sharing.');
       }
     }
     attached = true;
-    if (owner !== session) throw new Error('Pi disconnected while sharing.');
     // Finish setup before publishing the grant, so no request can act earlier.
     const send = (method, params) => {
       if (owner !== session) throw new Error('Pi disconnected while sharing.');
