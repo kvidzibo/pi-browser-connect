@@ -1,5 +1,6 @@
 // Background work in a real browser: Playwright would enable focus emulation itself,
-// so this test drives Chromium through a plain DevTools socket and a private i3.
+// so this test drives Chromium through a plain DevTools socket, on its own Xvfb
+// display with a private i3. It never uses an inherited display or window manager.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { execFileSync, spawn } from 'node:child_process';
@@ -24,7 +25,6 @@ async function eventually(fn, timeout = 15000) {
 }
 
 test('shared new tab works unfocused, on another workspace, and as a background tab without taking focus', { timeout: 90000 }, async t => {
-  assert.ok(process.env.DISPLAY, 'Run with xvfb-run and a private D-Bus session');
   const home = await mkdtemp(join(tmpdir(), 'pi-browser-connect-bg-'));
   const previous = { HOME: process.env.HOME, PI_BROWSER_CONNECT_DIR: process.env.PI_BROWSER_CONNECT_DIR };
   process.env.HOME = home;
@@ -41,20 +41,23 @@ test('shared new tab works unfocused, on another workspace, and as a background 
     await rm(home, { recursive: true, force: true, maxRetries: 5 });
   });
 
-  // A private window manager: its socket lives in the temporary home, never a live session's.
-  const { I3SOCK: _live, SWAYSOCK: _sway, ...clean } = process.env;
-  const wmEnv = { ...clean, XDG_RUNTIME_DIR: join(home, 'wm') };
+  // A private display and window manager; the i3 socket lives in the temporary home.
+  const display = spawn('Xvfb', ['-displayfd', '3', '-screen', '0', '1600x900x24', '-nolisten', 'tcp'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe'] });
+  children.push(display);
+  const number = await new Promise((resolveDisplay, reject) => { display.stdio[3].once('data', data => resolveDisplay(String(data).trim())); display.once('exit', () => reject(new Error('Xvfb did not start'))); });
+  const { I3SOCK: _live, SWAYSOCK: _sway, XAUTHORITY: _authority, WAYLAND_DISPLAY: _wayland, ...clean } = process.env;
+  const wmEnv = { ...clean, DISPLAY: `:${number}`, XDG_RUNTIME_DIR: join(home, 'wm') };
   await mkdir(wmEnv.XDG_RUNTIME_DIR, { mode: 0o700 });
   await writeFile(join(home, 'i3.conf'), '# i3 config file (v4)\nfont pango:monospace 8\n');
   children.push(spawn('i3', ['-c', join(home, 'i3.conf')], { env: wmEnv, stdio: 'ignore' }));
   let socket;
   await eventually(() => { socket = execFileSync('i3', ['--get-socketpath'], { env: wmEnv, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); return socket.startsWith(home); });
-  const i3 = command => execFileSync('i3-msg', ['-s', socket, command], { stdio: 'ignore' });
-  const focused = () => execFileSync('xdotool', ['getwindowfocus', 'getwindowname']).toString().trim();
+  const i3 = command => execFileSync('i3-msg', ['-s', socket, command], { env: wmEnv, stdio: 'ignore' });
+  const focused = () => execFileSync('xdotool', ['getwindowfocus', 'getwindowname'], { env: wmEnv, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
 
   server = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    res.end(req.url !== '/agent' ? `<title>${req.url === '/user' ? 'USERPAGE' : 'COVERPAGE'}</title><h1>Your page</h1>` : `<title>AGENTPAGE</title><label>Query <input id="q"></label><button onclick="r.textContent='clicked: '+q.value">Go</button><p id="r"></p><p id="k"></p><p id="s"></p><script>q.addEventListener('keydown',e=>{k.textContent='key '+e.key+' trusted='+e.isTrusted});let last=performance.now();setInterval(()=>{const now=performance.now();s.textContent=(now-last<500?'timers-ok':'timers-throttled')+' vis='+document.visibilityState+' focus='+document.hasFocus();last=now},50)</script>`);
+    res.end(req.url !== '/agent' ? `<title>${req.url === '/user' ? 'USERPAGE' : 'COVERPAGE'}</title><h1>Your page</h1>` : `<title>AGENTPAGE</title><label>Query <input id="q"></label><button onclick="r.textContent='clicked: '+q.value">Go</button><p id="r"></p><p id="k"></p><p id="s"></p><script>q.addEventListener('keydown',e=>{k.textContent='key '+e.key+' trusted='+e.isTrusted});let last=performance.now();setInterval(()=>{const now=performance.now();const text=(now-last<500?'timers-ok':'timers-throttled')+' vis='+document.visibilityState+' focus='+document.hasFocus();last=now;if(s.textContent!==text)s.textContent=text},50)</script>`);
   });
   await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
   const port = server.address().port;
