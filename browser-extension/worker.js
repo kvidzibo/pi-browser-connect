@@ -130,10 +130,11 @@ async function execute(params, expected) {
       // Still shared, so Pi can recover by navigating; expose nothing from the document.
       return { tabs: [{ url: 'Failed or unsupported page. Navigate to another URL.' }] };
     }
-    const page = sharedPage(current.url);
+    // Title and URL come from one result, bracketed by checks of the same document.
     const { targetInfo } = await cdp(expected, 'Target.getTargetInfo');
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Try again.');
-    return { tabs: [{ title: targetInfo.title?.slice(0, 300), url: page === 'about:blank' ? page : page + new URL(current.url).pathname }] };
+    const page = sharedPage(targetInfo.url);
+    return { tabs: [{ title: targetInfo.title?.slice(0, 300), url: page === 'about:blank' ? page : page + new URL(targetInfo.url).pathname }] };
   }
   if (params.action === 'snapshot') {
     const current = await world(expected);
