@@ -19,6 +19,7 @@
     <div class="buttons">
       <button id="connect" class="secondary">Retry bridge</button>
       <button id="share" hidden>Share this tab with Pi</button>
+      <button id="separate" class="secondary" hidden>Share in a separate window</button>
       <button id="disconnect" class="danger" hidden>Disconnect</button>
     </div>
     <p id="error" role="alert" hidden></p>
@@ -26,6 +27,7 @@
       <p>In Pi, run <code>/browser-connect</code> for guided setup. Opening this popup starts the bridge and updates the pairing code automatically; it never shares a tab for you.</p>
       <p>To repair registration, run <code>/browser-connect setup chromium</code> (or <code>setup chrome</code> for Google Chrome), then reopen this popup or click Retry bridge.</p>
       <p>Linux, Chrome/Chromium 125+. One session and tab. Main document only; no iframe or shadow-root controls. Sharing follows the tab to any website; internal browser pages disconnect. Do not share sensitive pages.</p>
+      <p>Share in a separate window moves the tab to its own window without a tab strip or toolbar, so links you open from other apps never land there. Disconnect from this popup in any other window, or close that window.</p>
     </details>
   </main>
   <script type="module" src="popup.js"></script>

@@ -235,7 +235,7 @@ async function respond(message) {
     if (session === owner) post({ ...reply, error: String(error.message || error).slice(0, 700) });
   } finally { busy = false; }
 }
-async function share(tabId, sessionId, expectedPage) {
+async function share(tabId, sessionId, expectedPage, separate) {
   if (connecting) throw new Error('Sharing is already in progress.');
   if (!session || session.sessionId !== sessionId) throw new Error('Pi session changed. Refresh and compare the code again.');
   if (grant) throw new Error('A tab is already shared. Disconnect first.');
@@ -277,6 +277,9 @@ async function share(tabId, sessionId, expectedPage) {
     // The overlay highlights Pi's targets; it is optional, so sharing works without it.
     try { await send('DOM.enable'); await send('Overlay.enable'); } catch { /* Actions run unhighlighted. */ }
     supported((await send('Page.getFrameTree')).frameTree.frame);
+    // Chromium opens links from other apps in the last active normal window, raising it.
+    // It never picks a popup-type window, so one keeps your links and focus away from Pi's tab.
+    if (separate) await chrome.windows.create({ tabId, type: 'popup' });
     if (owner !== session) throw new Error('Pi disconnected while sharing.');
     grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
     lastError = '';
@@ -307,7 +310,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('popup.html')) return;
   void (async () => {
     if (message.action === 'connect') connect();
-    else if (message.action === 'share') await share(message.tabId, message.sessionId, message.page);
+    else if (message.action === 'share') await share(message.tabId, message.sessionId, message.page, message.separate === true);
     else if (message.action === 'disconnect') await revoke('Disconnected by you.');
     else if (message.action !== 'status') throw new Error('Unknown UI action.');
     return { ready, session, shared: grant ? { tabId: grant.tabId } : null, error: lastError };

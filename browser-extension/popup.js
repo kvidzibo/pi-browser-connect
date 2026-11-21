@@ -24,19 +24,20 @@ async function render(state) {
   $('origin').textContent = page() !== 'about:blank' ? page() || '' : sharedHere ? '' : 'Sharing opens a blank page in this tab.';
   $('connect').hidden = Boolean(state.ready);
   $('share').hidden = !state.session || Boolean(state.shared);
-  $('share').disabled = !page() || tab.incognito;
+  $('separate').hidden = $('share').hidden;
+  $('share').disabled = $('separate').disabled = !page() || tab.incognito;
   $('disconnect').hidden = !state.session;
   $('error').hidden = !state.error;
   $('error').textContent = state.error || '';
 }
 
-async function send(action) {
+async function send(action, separate = false) {
   if (sending) return;
   sending = true;
   const buttons = Array.from(document.querySelectorAll('button'));
   buttons.forEach(button => { button.disabled = true; });
   try {
-    const state = await chrome.runtime.sendMessage({ action, tabId: tab?.id, page: page(), sessionId: current?.session?.sessionId });
+    const state = await chrome.runtime.sendMessage({ action, tabId: tab?.id, page: page(), separate, sessionId: current?.session?.sessionId });
     await render(state);
   } catch (error) {
     $('error').hidden = false;
@@ -44,11 +45,12 @@ async function send(action) {
   } finally {
     sending = false;
     buttons.forEach(button => { button.disabled = false; });
-    $('share').disabled = !page() || tab.incognito;
+    $('share').disabled = $('separate').disabled = !page() || tab.incognito;
   }
 }
 $('connect').onclick = () => send('connect');
 $('share').onclick = () => send('share');
+$('separate').onclick = () => send('share', true);
 $('disconnect').onclick = () => send('disconnect');
 // Opening the popup starts only the transport, never tab sharing.
 await send('connect');
