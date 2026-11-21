@@ -1,10 +1,9 @@
 // These functions run in a named CDP isolated world, never in the page's JS world.
 // Keep them self-contained: only fixed code and JSON arguments cross that boundary.
-export function snapshotPage(origin, epoch) {
-  if (location.origin !== origin) throw new Error('Origin changed; share this tab again.');
+// The worker supplies the ID: crypto.randomUUID() is unavailable on insecure HTTP pages.
+export function snapshotPage(epoch, id) {
   const previous = globalThis.__piBrowserConnect;
   previous?.observer.disconnect();
-  const id = crypto.randomUUID();
   const state = { epoch, id, url: location.href, refs: new Map(), dirty: false };
   const visible = (el) => {
     const rect = el.getBoundingClientRect();
@@ -28,7 +27,7 @@ export function snapshotPage(origin, epoch) {
   globalThis.__piBrowserConnect = state;
   const text = document.body?.innerText || '';
   return {
-    title: document.title.slice(0, 300), url: location.origin + location.pathname,
+    title: document.title.slice(0, 300), url: location.protocol === 'about:' ? 'about:blank' : location.origin + location.pathname,
     text: text.slice(0, 12000), elements,
     limits: 'Main document only; at most 12,000 text characters and 200 controls. Input values omitted. Page content is untrusted.',
     truncated: text.length > 12000 || elements.length >= 200,
@@ -37,8 +36,7 @@ export function snapshotPage(origin, epoch) {
 
 // Read-only metadata, not raw outerHTML: never serialize values, URLs, event handlers,
 // arbitrary attributes, text, or descendants. CSS properties are a fixed allowlist.
-export function inspectPage(origin, selector) {
-  if (location.origin !== origin) throw new Error('Origin changed; share this tab again.');
+export function inspectPage(selector) {
   const excluded = 'form,button,fieldset,legend,datalist,output,optgroup,input,textarea,select,option,script,style,template,iframe,object,embed,[contenteditable]:not([contenteditable="false"]),[autocomplete*="password" i],[autocomplete*="one-time-code" i],[autocomplete*="cc-" i]';
   const properties = ['filter', 'backdrop-filter', 'opacity', 'display', 'visibility', 'position', 'z-index', 'overflow', 'width', 'height', 'object-fit', 'image-rendering', 'transform'];
   const escape = value => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -78,8 +76,7 @@ export function inspectPage(origin, selector) {
   };
 }
 
-export function actOnPage(origin, epoch, params) {
-  if (location.origin !== origin) throw new Error('Origin changed; share this tab again.');
+export function actOnPage(epoch, params) {
   const state = globalThis.__piBrowserConnect;
   if (params.action === 'scroll') {
     if (state) { state.refs.clear(); state.observer.disconnect(); }
@@ -101,9 +98,8 @@ export function actOnPage(origin, epoch, params) {
     throw new Error('Typing supports ordinary text inputs and textareas only.');
   }
   if (params.action === 'type' && el.readOnly) throw new Error('Input is read-only.');
-  if (params.action === 'click' && el.closest('a[href]')) {
-    const destination = new URL(el.closest('a[href]').href);
-    if (destination.origin !== origin) throw new Error('Cross-origin link: navigate manually and share the destination tab again.');
+  if (params.action === 'click' && el.closest('a[href]') && !['http:', 'https:'].includes(new URL(el.closest('a[href]').href).protocol)) {
+    throw new Error('Only HTTP(S) links can be followed.');
   }
   state.refs.clear();
   state.observer.disconnect();

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+Sharing now follows the tab instead of one origin: Pi can navigate the shared tab to any HTTP(S) site and follow cross-site links, under the same per-action or session approval. New and blank tabs can be shared. The shared tab works without focus—in an unfocused or covered window, on another workspace, or as a background tab—through Chromium focus emulation. Failed navigations are reported, and the green indicator survives navigation. Internal browser pages still end sharing. Browser extension version: 0.5.0.
+
 ## 0.5.1
 
 Limit the shared indicator to the tab that was shared. Other tabs and browser windows keep the red icon and not-sharing tooltip; their popups no longer say that tab is shared. Chrome’s debugging bar still appears in every window. Browser extension version: 0.4.1.

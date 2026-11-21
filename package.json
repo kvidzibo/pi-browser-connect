@@ -1,6 +1,6 @@
 {
   "name": "@kvidzibo/pi-browser-connect",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Connect Pi to an explicitly shared tab in your everyday Chromium browser.",
   "type": "module",
   "license": "MIT",
@@ -47,7 +47,7 @@
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.mjs tests/*.test.ts",
-    "test:integration": "node --experimental-strip-types --test tests/browser.integration.mjs",
+    "test:integration": "node --experimental-strip-types --test --test-concurrency=1 tests/*.integration.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm test"
   },
