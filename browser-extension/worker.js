@@ -124,13 +124,15 @@ async function execute(params, expected) {
   if (params.action === 'tabs' && !expected) return { tabs: [], message: 'No tab shared. Click the browser extension and compare the pairing code.' };
   assertGrant(expected);
   if (params.action === 'tabs') {
+    let current;
+    try { current = await frame(expected); } catch {
+      assertGrant(expected);
+      // Still shared, so Pi can recover by navigating; expose nothing from the document.
+      return { tabs: [{ url: 'Failed or unsupported page. Navigate to another URL.' }] };
+    }
+    const page = sharedPage(current.url);
     const { targetInfo } = await cdp(expected, 'Target.getTargetInfo');
-    let url = 'Unsupported or failed page';
-    try {
-      const page = sharedPage(targetInfo.url);
-      url = page === 'about:blank' ? page : page + new URL(targetInfo.url).pathname;
-    } catch { /* Error pages have no shareable URL. */ }
-    return { tabs: [{ title: targetInfo.title?.slice(0, 300), url }] };
+    return { tabs: [{ title: targetInfo.title?.slice(0, 300), url: page === 'about:blank' ? page : page + new URL(current.url).pathname }] };
   }
   if (params.action === 'snapshot') {
     const current = await world(expected);
@@ -233,13 +235,15 @@ async function share(tabId, sessionId, expectedPage) {
     attached = true;
     if (owner !== session) throw new Error('Pi disconnected while sharing.');
     // Finish setup before publishing the grant, so no request can act earlier.
-    const send = (method, params) => chrome.debugger.sendCommand({ tabId }, method, params);
+    const send = (method, params) => {
+      if (owner !== session) throw new Error('Pi disconnected while sharing.');
+      return chrome.debugger.sendCommand({ tabId }, method, params);
+    };
     await send('Page.enable');
     for (let tries = 0; blank; tries++) {
       if ((await send('Page.getFrameTree')).frameTree.frame.url === 'about:blank') break;
       if (tries >= 30) throw new Error('Unable to open a blank page in this tab.');
       await new Promise(resolve => setTimeout(resolve, 100));
-      if (owner !== session) throw new Error('Pi disconnected while sharing.');
     }
     // Keep the page focused and visible to itself, so timers, focus and key events
     // work while the user is in another tab, window or workspace.

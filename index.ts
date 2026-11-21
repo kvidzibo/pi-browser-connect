@@ -137,7 +137,10 @@ export default function browserConnect(pi: ExtensionAPI) {
         if (!ctx.hasUI) throw new Error('Browser mutations require interactive approval.');
         if (params.ref && !elements.has(params.ref)) throw new Error('Unknown or consumed reference. Take a fresh snapshot.');
         if (!approveAll) {
-          const target = params.ref ? preview(elements.get(params.ref)!) : preview(params.url || '', 180);
+          // Always show the whole destination origin; only the rest of the URL is shortened.
+          const destination = params.action === 'navigate' ? new URL(params.url!) : undefined;
+          const rest = destination ? destination.pathname + destination.search + destination.hash : '';
+          const target = params.ref ? preview(elements.get(params.ref)!) : destination ? `${destination.origin}${preview(rest, 120)}${rest.length > 120 ? '… [truncated]' : ''}` : '';
           const extra = params.action === 'type' ? `\nReplace text (${params.text!.length} characters): ${preview(params.text!, 120)}${params.text!.length > 120 ? '… [preview only]' : ''}` : params.key ? `\nKey: ${params.key}` : '';
           const title = params.action === 'evaluate'
             ? `Run JavaScript in the shared tab?\nCan read sensitive page data and make signed-in requests.\nScript preview: ${preview(params.expression!, 240)}${params.expression!.length > 240 ? '… [preview only; see tool call for full script]' : ''}\nSide effects cannot be undone.`

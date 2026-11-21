@@ -344,7 +344,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   // A failed load is reported and keeps the tab shared.
   await assert.rejects(call({ action: 'navigate', url: 'http://127.0.0.1:1/' }), /Navigation failed/);
   await assert.rejects(call({ action: 'snapshot' }), /failed to load/);
-  assert.equal(data(await call({ action: 'tabs' })).tabs.length, 1);
+  assert.deepEqual(data(await call({ action: 'tabs' })).tabs, [{ url: 'Failed or unsupported page. Navigate to another URL.' }]);
   await call({ action: 'navigate', url: url + 'next' });
   await fixture.waitForURL(url + 'next');
   await call({ action: 'snapshot' });
@@ -496,7 +496,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   assert.deepEqual(data(await call({ action: 'tabs' })).tabs.map(tab => tab.url), ['about:blank']);
   assert.deepEqual(data(await call({ action: 'snapshot' })).elements, []);
   approval = 'Approve once';
-  await call({ action: 'navigate', url });
+  await call({ action: 'navigate', url: `${url}long?${'q'.repeat(200)}` });
+  assert.ok(approvals.at(-1).includes(`navigate: ${url}long?${'q'.repeat(114)}… [truncated]\n`), 'Navigation approval shows the full origin');
   await eventually(async () => { try { return data(await call({ action: 'snapshot' })).title === 'Shared tab fixture'; } catch { return false; } });
   await command('disconnect', ctx);
   // Evaluation cannot grant tab access, and approval cannot survive a changed connection.
