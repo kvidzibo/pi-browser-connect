@@ -79,9 +79,14 @@ test('shared new tab works unfocused, on another workspace, and as a background 
     await copyFile(join(profile, hostManifest), join(home, '.config', name, hostManifest));
   }
 
-  children.push(spawn(process.env.BROWSER_CONNECT_CHROMIUM || chromium.executablePath(), [`--user-data-dir=${profile}`, '--remote-debugging-port=0', `--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`, '--disable-features=DisableLoadExtensionCommandLineSwitch', '--no-first-run', '--no-default-browser-check', '--password-store=basic', `http://127.0.0.1:${port}/user`], { stdio: 'ignore', env: { ...wmEnv, HOME: home, XDG_CONFIG_HOME: join(home, '.config') } }));
+  // Like Playwright's default, run without the Chromium sandbox: CI runners restrict user namespaces.
+  const browser = spawn(process.env.BROWSER_CONNECT_CHROMIUM || chromium.executablePath(), [`--user-data-dir=${profile}`, '--remote-debugging-port=0', `--load-extension=${extensionPath}`, `--disable-extensions-except=${extensionPath}`, '--disable-features=DisableLoadExtensionCommandLineSwitch', '--no-first-run', '--no-default-browser-check', '--password-store=basic', '--no-sandbox', `http://127.0.0.1:${port}/user`], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...wmEnv, HOME: home, XDG_CONFIG_HOME: join(home, '.config') } });
+  children.push(browser);
+  let browserErrors = '';
+  browser.stderr.on('data', data => { browserErrors = (browserErrors + data).slice(-2000); });
   let devtools;
-  await eventually(async () => { devtools = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; return Boolean(devtools); });
+  await eventually(async () => { devtools = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; return Boolean(devtools); })
+    .catch(() => { throw new Error(`Chromium did not start: ${browserErrors}`); });
   await eventually(() => focused().startsWith('USERPAGE'));
   // Attach only to the popup document, never to the shared tab.
   const popupUrl = `chrome-extension://${await bundledExtensionId()}/popup.html`;
