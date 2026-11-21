@@ -67,7 +67,7 @@ Scripts run synchronously in a fresh isolated JavaScript world in the shared mai
 
 ### Navigation and background work
 
-Sharing follows the tab, not a site. Pi can `navigate` the shared tab to any HTTP(S) URL and follow links across sites; your own navigation in that tab keeps it shared too. Each navigation asks for approval unless you chose **Approve all for this session**, which then covers every site the tab visits. Share a dedicated tab or window rather than one you are using.
+Sharing follows the tab, not a site. Pi can `navigate` the shared tab to any HTTP(S) URL and follow HTTP(S) links across sites; your own navigation in that tab keeps it shared too. Each navigation asks for approval unless you chose **Approve all for this session**, which then covers every site the tab visits. Share a dedicated tab or window rather than one you are using.
 
 The shared tab does not need focus. Put it in its own window and keep working elsewhere: Pi can navigate, read, click, type, press keys, and take screenshots while the window is unfocused, covered, on another workspace, or while the tab is in the background. The extension enables Chromium's focus emulation for the shared tab, so the page sees itself as visible and focused and its timers are not throttled. Pi's actions do not raise the window or take keyboard focus.
 

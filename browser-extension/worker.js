@@ -91,16 +91,20 @@ async function cdp(expected, method, params = {}) {
   if (grant !== expected) throw new Error('Access revoked while the action was running; it may already have run.');
   return result;
 }
-async function frame(expected) {
-  const result = await cdp(expected, 'Page.getFrameTree');
-  const current = result.frameTree.frame;
+function supported(current) {
   if (current.unreachableUrl) throw new Error('The page failed to load. Navigate to another URL.');
   try { sharedPage(current.url); } catch { throw new Error('Only HTTP(S) and blank pages are supported.'); }
   return current;
 }
-async function evaluate(expected, fn, args, contextId) {
+async function frame(expected) {
+  return supported((await cdp(expected, 'Page.getFrameTree')).frameTree.frame);
+}
+// Context IDs can repeat in another renderer process. Code refuses to run unless
+// its world holds the token placed there while the document was verified.
+const guard = current => `if (globalThis.__piBrowserConnectWorld !== ${JSON.stringify(current.token)}) throw new Error('Document changed. Take a fresh snapshot.');`;
+async function evaluate(expected, fn, args, current) {
   const result = await cdp(expected, 'Runtime.evaluate', {
-    expression: `(${fn.toString()})(...${JSON.stringify(args)})`, contextId,
+    expression: `(() => { ${guard(current)} return (${fn.toString()})(...${JSON.stringify(args)}); })()`, contextId: current.contextId,
     returnByValue: true, awaitPromise: false,
   });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description?.slice(0, 500) || 'Page action failed. Take a fresh snapshot.');
@@ -109,9 +113,11 @@ async function evaluate(expected, fn, args, contextId) {
 async function world(expected, suffix = '') {
   const current = await frame(expected);
   const result = await cdp(expected, 'Page.createIsolatedWorld', { frameId: current.id, worldName: `pi-browser-connect-${expected.epoch}${suffix}` });
-  // Frame IDs survive navigation: make sure the world belongs to the checked document.
+  // Snapshot and inspection share one world; keep its first token so references stay valid.
+  const token = (await cdp(expected, 'Runtime.evaluate', { expression: `globalThis.__piBrowserConnectWorld ??= ${JSON.stringify(crypto.randomUUID())}`, contextId: result.executionContextId, returnByValue: true })).result?.value;
+  // Frame IDs survive navigation: make sure the world and token belong to the checked document.
   if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Take a fresh snapshot.');
-  return { contextId: result.executionContextId, loaderId: current.loaderId };
+  return { contextId: result.executionContextId, loaderId: current.loaderId, token };
 }
 async function execute(params, expected) {
   validateParams(params);
@@ -128,14 +134,14 @@ async function execute(params, expected) {
   }
   if (params.action === 'snapshot') {
     const current = await world(expected);
-    const result = await evaluate(expected, snapshotPage, [expected.epoch, crypto.randomUUID()], current.contextId);
+    const result = await evaluate(expected, snapshotPage, [expected.epoch, crypto.randomUUID()], current);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during snapshot. Take another snapshot.');
     expected.world = current;
     return result;
   }
   if (params.action === 'inspect') {
     const current = await world(expected);
-    const result = await evaluate(expected, inspectPage, [params.selector], current.contextId);
+    const result = await evaluate(expected, inspectPage, [params.selector], current);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during inspection; result discarded.');
     return result;
   }
@@ -146,6 +152,7 @@ async function execute(params, expected) {
     const current = await world(expected, `-script-${crypto.randomUUID()}`);
     const result = await cdp(expected, 'Runtime.evaluate', {
       expression: `(() => {
+        ${guard(current)}
         const value = (0, eval)(${JSON.stringify(params.expression)});
         if (value && typeof value.then === 'function') throw new Error('Return a synchronous value, not a Promise.');
         const serialized = JSON.stringify(value) ?? String(value);
@@ -175,7 +182,7 @@ async function execute(params, expected) {
   if (!current || (await frame(expected)).loaderId !== current.loaderId) throw new Error('Take a fresh snapshot before interacting.');
   // Consume references before dispatch, even when a later step fails.
   expected.world = undefined;
-  const result = await evaluate(expected, actOnPage, [expected.epoch, params], current.contextId);
+  const result = await evaluate(expected, actOnPage, [expected.epoch, params], current);
   if (params.action === 'press') {
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed; keypress cancelled.');
     const key = keys[params.key];
@@ -220,29 +227,30 @@ async function share(tabId, sessionId, expectedPage) {
         // New-tab and internal pages stay undebuggable until about:blank commits.
         if (!blank || tries >= 30) throw error;
         await new Promise(resolve => setTimeout(resolve, 100));
+        if (owner !== session) throw new Error('Pi disconnected while sharing.');
       }
     }
     attached = true;
+    if (owner !== session) throw new Error('Pi disconnected while sharing.');
     // Finish setup before publishing the grant, so no request can act earlier.
     const send = (method, params) => chrome.debugger.sendCommand({ tabId }, method, params);
     await send('Page.enable');
     for (let tries = 0; blank; tries++) {
-      const { frameTree } = await send('Page.getFrameTree');
-      if (frameTree.frame.url === 'about:blank') break;
+      if ((await send('Page.getFrameTree')).frameTree.frame.url === 'about:blank') break;
       if (tries >= 30) throw new Error('Unable to open a blank page in this tab.');
       await new Promise(resolve => setTimeout(resolve, 100));
+      if (owner !== session) throw new Error('Pi disconnected while sharing.');
     }
     // Keep the page focused and visible to itself, so timers, focus and key events
     // work while the user is in another tab, window or workspace.
     await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    supported((await send('Page.getFrameTree')).frameTree.frame);
     if (owner !== session) throw new Error('Pi disconnected while sharing.');
     grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
-    await frame(grant);
     lastError = '';
     updateIcon();
   } catch (error) {
-    if (grant?.sessionId === owner.sessionId) await revoke('Unable to share tab.');
-    else if (attached) await chrome.debugger.detach({ tabId }).catch(() => {});
+    if (attached) await chrome.debugger.detach({ tabId }).catch(() => {});
     throw error;
   } finally { connecting = false; }
 }
