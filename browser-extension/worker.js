@@ -276,10 +276,11 @@ async function share(tabId, sessionId, expectedPage, separate) {
     await send('Emulation.setFocusEmulationEnabled', { enabled: true });
     // The overlay highlights Pi's targets; it is optional, so sharing works without it.
     try { await send('DOM.enable'); await send('Overlay.enable'); } catch { /* Actions run unhighlighted. */ }
-    supported((await send('Page.getFrameTree')).frameTree.frame);
     // Chromium opens links from other apps in the last active normal window, raising it.
     // It never picks a popup-type window, so one keeps your links and focus away from Pi's tab.
     if (separate) await chrome.windows.create({ tabId, type: 'popup' });
+    // Checked last: fails if the debugger detached or the page changed during the move.
+    supported((await send('Page.getFrameTree')).frameTree.frame);
     if (owner !== session) throw new Error('Pi disconnected while sharing.');
     grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
     lastError = '';
