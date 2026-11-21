@@ -57,7 +57,7 @@ test('shared new tab works unfocused, on another workspace, and as a background 
 
   server = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    res.end(req.url !== '/agent' ? `<title>${req.url === '/user' ? 'USERPAGE' : 'COVERPAGE'}</title><h1>Your page</h1>` : `<title>AGENTPAGE</title><label>Query <input id="q"></label><button onclick="r.textContent='clicked: '+q.value">Go</button><p id="r"></p><p id="k"></p><p id="s"></p><script>q.addEventListener('keydown',e=>{k.textContent='key '+e.key+' trusted='+e.isTrusted});let last=performance.now();setInterval(()=>{const now=performance.now();const text=(now-last<500?'timers-ok':'timers-throttled')+' vis='+document.visibilityState+' focus='+document.hasFocus();last=now;if(s.textContent!==text)s.textContent=text},50)</script>`);
+    res.end(req.url !== '/agent' ? `<title>${req.url === '/user' ? 'USERPAGE' : 'COVERPAGE'}</title><h1>Your page</h1>` : `<title>AGENTPAGE</title><label>Query <input id="q"></label><button onclick="report()">Go</button><p id="r"></p><p id="k"></p><script>q.addEventListener('keydown',e=>{k.textContent='key '+e.key+' trusted='+e.isTrusted});let last=performance.now(),slow=0;setInterval(()=>{const now=performance.now();if(now-last>500)slow++;last=now},50);function report(){r.textContent='clicked: '+q.value+' slow-timers='+slow+' vis='+document.visibilityState+' focus='+document.hasFocus()}</script>`);
   });
   await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
   const port = server.address().port;
@@ -121,15 +121,16 @@ test('shared new tab works unfocused, on another workspace, and as a background 
     await call({ action: 'type', ref: ref(), text: label });
     snapshot = await call({ action: 'snapshot' });
     await call({ action: 'press', ref: ref(), key: 'ArrowLeft' });
+    // Give throttled timers time to show before the page reports on the click.
+    await delay(700);
     snapshot = await call({ action: 'snapshot' });
     await call({ action: 'click', ref: snapshot.elements.find(element => element.label === 'Go').ref });
     assert.ok((await tool.execute('background', { action: 'screenshot' }, new AbortController().signal, undefined, ctx)).content[1].data.length > 1000, label);
-    await delay(700);
     const { text, url } = await call({ action: 'snapshot' });
     assert.equal(url, `${origin}/agent`, label);
-    assert.match(text, new RegExp(`clicked: ${label}`), label);
+    // The page writes to the DOM only in response to Pi's own actions, so references stay valid.
+    assert.match(text, new RegExp(`clicked: ${label} slow-timers=0 vis=visible focus=true`), label);
     assert.match(text, /key ArrowLeft trusted=true/, label);
-    assert.match(text, /timers-ok vis=visible focus=true/, label);
     assert.match(focused(), /^USERPAGE/, `${label}: actions must not take window focus`);
   };
   await work('unfocused window', `http://127.0.0.1:${port}`);
