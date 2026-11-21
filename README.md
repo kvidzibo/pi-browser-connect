@@ -102,13 +102,13 @@ npm ci --ignore-scripts
 npm run typecheck
 npm test
 npx playwright-core install --with-deps chromium
-# Also install xvfb, dbus-x11, and xdotool with your system package manager.
+# Also install xvfb, dbus-x11, xdotool, and i3 with your system package manager.
 xvfb-run -a dbus-run-session -- npm run test:integration
 npm pack --dry-run
 ```
 
 To regenerate the toolbar icons from `browser-extension/icons/icon.svg`, install `rsvg-convert` (Debian: `librsvg2-bin`) and run `node scripts/generate-icons.mjs`.
 
-Integration uses a temporary HOME/profile, synthetic local pages, the real native host, and Pi's loader—never your normal browser or a model request. Set `BROWSER_CONNECT_CHROMIUM=/usr/bin/chromium` to use a system browser. Screenshots can be saved under `/tmp/` with `BROWSER_CONNECT_SCREENSHOTS=/tmp/browser-connect-captures`; toolbar captures also require ImageMagick's `import` command.
+Integration uses a temporary HOME/profile, synthetic local pages, the real native host, Pi's loader, and a private i3 for the background-work test—never your normal browser, window manager, or a model request. Set `BROWSER_CONNECT_CHROMIUM=/usr/bin/chromium` to use a system browser. Screenshots can be saved under `/tmp/` with `BROWSER_CONNECT_SCREENSHOTS=/tmp/browser-connect-captures`; toolbar captures also require ImageMagick's `import` command.
 
 [Architecture and troubleshooting](docs/architecture.md) · [Publishing](docs/publishing.md) · [MIT](LICENSE)

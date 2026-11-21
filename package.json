@@ -47,7 +47,7 @@
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test tests/*.test.mjs tests/*.test.ts",
-    "test:integration": "node --experimental-strip-types --test tests/browser.integration.mjs",
+    "test:integration": "node --experimental-strip-types --test --test-concurrency=1 tests/*.integration.mjs",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run typecheck && npm test"
   },
