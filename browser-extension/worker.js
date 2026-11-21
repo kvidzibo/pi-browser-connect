@@ -1,5 +1,5 @@
 import { snapshotPage, inspectPage, actOnPage } from './page.js';
-import { validateParams, webOrigin, keys } from './policy.js';
+import { validateParams, sharedPage, shareTarget, keys } from './policy.js';
 
 let port;
 let ready = false;
@@ -80,32 +80,29 @@ function connect() {
   });
 }
 
-async function assertGrant(expected) {
+// The grant covers the tab, wherever it navigates. Tab URLs are read through CDP:
+// activeTab stops exposing them once the tab leaves the origin it was shared on.
+function assertGrant(expected) {
   if (!expected || grant !== expected || session?.sessionId !== expected.sessionId) throw new Error('No shared tab. Use the browser extension to share a tab.');
-  const tab = await chrome.tabs.get(expected.tabId);
-  if (grant !== expected || tab.pendingUrl || webOrigin(tab.url) !== expected.origin) {
-    if (grant === expected) void revoke('The tab navigated. Share it again.');
-    throw new Error('Tab changed or access was revoked.');
-  }
-  return tab;
 }
 async function cdp(expected, method, params = {}) {
-  await assertGrant(expected);
+  assertGrant(expected);
   const result = await chrome.debugger.sendCommand({ tabId: expected.tabId }, method, params);
   if (grant !== expected) throw new Error('Access revoked while the action was running; it may already have run.');
   return result;
 }
 async function frame(expected) {
   const result = await cdp(expected, 'Page.getFrameTree');
-  if (webOrigin(result.frameTree.frame.url) !== expected.origin) throw new Error('Document origin changed.');
-  return result.frameTree.frame;
+  const current = result.frameTree.frame;
+  if (current.unreachableUrl) throw new Error('The page failed to load. Navigate to another URL.');
+  try { sharedPage(current.url); } catch { throw new Error('Only HTTP(S) and blank pages are supported.'); }
+  return current;
 }
 async function evaluate(expected, fn, args, contextId) {
   const result = await cdp(expected, 'Runtime.evaluate', {
     expression: `(${fn.toString()})(...${JSON.stringify(args)})`, contextId,
     returnByValue: true, awaitPromise: false,
   });
-  await assertGrant(expected);
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description?.slice(0, 500) || 'Page action failed. Take a fresh snapshot.');
   return result.result?.value;
 }
@@ -117,18 +114,26 @@ async function world(expected, suffix = '') {
 async function execute(params, expected) {
   validateParams(params);
   if (params.action === 'tabs' && !expected) return { tabs: [], message: 'No tab shared. Click the browser extension and compare the pairing code.' };
-  const tab = await assertGrant(expected);
-  if (params.action === 'tabs') return { tabs: [{ title: tab.title?.slice(0, 300), url: expected.origin + new URL(tab.url).pathname }] };
+  assertGrant(expected);
+  if (params.action === 'tabs') {
+    const { targetInfo } = await cdp(expected, 'Target.getTargetInfo');
+    let url = 'Unsupported or failed page';
+    try {
+      const page = sharedPage(targetInfo.url);
+      url = page === 'about:blank' ? page : page + new URL(targetInfo.url).pathname;
+    } catch { /* Error pages have no shareable URL. */ }
+    return { tabs: [{ title: targetInfo.title?.slice(0, 300), url }] };
+  }
   if (params.action === 'snapshot') {
     const current = await world(expected);
-    const result = await evaluate(expected, snapshotPage, [expected.origin, expected.epoch], current.contextId);
+    const result = await evaluate(expected, snapshotPage, [expected.epoch], current.contextId);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during snapshot. Take another snapshot.');
     expected.world = current;
     return result;
   }
   if (params.action === 'inspect') {
     const current = await world(expected);
-    const result = await evaluate(expected, inspectPage, [expected.origin, params.selector], current.contextId);
+    const result = await evaluate(expected, inspectPage, [params.selector], current.contextId);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during inspection; result discarded.');
     return result;
   }
@@ -147,15 +152,14 @@ async function execute(params, expected) {
       contextId: current.contextId, returnByValue: true, awaitPromise: false,
       timeout: 5000,
     });
-    await assertGrant(expected);
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed during script execution; result discarded. Side effects may already have occurred.');
     if (result.exceptionDetails) throw new Error('Browser script failed; side effects may already have occurred. Take a fresh snapshot.');
     return result.result?.value;
   }
   if (params.action === 'navigate') {
-    if (webOrigin(params.url) !== expected.origin) throw new Error('Cross-origin navigation is not allowed. Navigate manually and share the destination again.');
     expected.world = undefined;
-    await cdp(expected, 'Page.navigate', { url: params.url });
+    const result = await cdp(expected, 'Page.navigate', { url: params.url });
+    if (result.errorText) throw new Error(`Navigation failed: ${String(result.errorText).slice(0, 200)}`);
     return { message: 'Navigation dispatched. Wait for the page to load, then take a snapshot.' };
   }
   if (params.action === 'screenshot') {
@@ -169,7 +173,7 @@ async function execute(params, expected) {
   if (!current || (await frame(expected)).loaderId !== current.loaderId) throw new Error('Take a fresh snapshot before interacting.');
   // Consume references before dispatch, even when a later step fails.
   expected.world = undefined;
-  const result = await evaluate(expected, actOnPage, [expected.origin, expected.epoch, params], current.contextId);
+  const result = await evaluate(expected, actOnPage, [expected.epoch, params], current.contextId);
   if (params.action === 'press') {
     if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed; keypress cancelled.');
     const key = keys[params.key];
@@ -193,7 +197,7 @@ async function respond(message) {
     if (session === owner) post({ ...reply, error: String(error.message || error).slice(0, 700) });
   } finally { busy = false; }
 }
-async function share(tabId, sessionId, expectedOrigin) {
+async function share(tabId, sessionId, expectedPage) {
   if (connecting) throw new Error('Sharing is already in progress.');
   if (!session || session.sessionId !== sessionId) throw new Error('Pi session changed. Refresh and compare the code again.');
   if (grant) throw new Error('A tab is already shared. Disconnect first.');
@@ -204,14 +208,26 @@ async function share(tabId, sessionId, expectedOrigin) {
     await detachBarrier;
     const tab = await chrome.tabs.get(tabId);
     if (tab.incognito || tab.pendingUrl) throw new Error('Incognito or loading tabs cannot be shared.');
-    const origin = webOrigin(tab.url);
-    if (origin !== expectedOrigin) throw new Error('Tab origin changed. Refresh and verify the tab before sharing.');
+    if (shareTarget(tab.url) !== expectedPage) throw new Error('Tab changed. Refresh and verify the tab before sharing.');
     if (owner !== session) throw new Error('Pi disconnected.');
-    await chrome.debugger.attach({ tabId }, '1.3');
+    const blank = tab.url === undefined;
+    if (blank) await chrome.tabs.update(tabId, { url: 'about:blank' });
+    for (let tries = 0; ; tries++) {
+      try { await chrome.debugger.attach({ tabId }, '1.3'); break; }
+      catch (error) {
+        // New-tab and internal pages stay undebuggable until about:blank commits.
+        if (!blank || tries >= 30) throw error;
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
     attached = true;
     if (owner !== session) throw new Error('Pi disconnected while sharing.');
-    grant = { tabId, origin, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
+    grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };
     await cdp(grant, 'Page.enable');
+    await frame(grant);
+    // Keep the page focused and visible to itself, so timers, focus and key events
+    // work while the user is in another tab, window or workspace.
+    await cdp(grant, 'Emulation.setFocusEmulationEnabled', { enabled: true });
     lastError = '';
     updateIcon();
   } catch (error) {
@@ -223,11 +239,14 @@ async function share(tabId, sessionId, expectedOrigin) {
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
   const current = grant;
-  if (!current || source.tabId !== current.tabId || method !== 'Page.frameNavigated' || params.frame.parentId) return;
+  if (!current || source.tabId !== current.tabId) return;
+  // Chromium resets tab-specific toolbar state on navigation; repaint the shared indicator.
+  if (method === 'Page.loadEventFired') updateIcon();
+  if (method !== 'Page.frameNavigated' || params.frame.parentId) return;
   current.world = undefined;
-  try {
-    if (webOrigin(params.frame.url) !== current.origin) void revoke('Tab left the shared origin. Share the destination again.');
-  } catch { void revoke('Tab left the shared origin.'); }
+  updateIcon();
+  if (params.frame.unreachableUrl) return;
+  try { sharedPage(params.frame.url); } catch { void revoke('Tab opened an unsupported page. Share a tab again.'); }
 });
 chrome.debugger.onDetach.addListener(source => {
   if (grant?.tabId === source.tabId) void revoke('Browser debugging detached. Share the tab again.');
@@ -238,10 +257,10 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL('popup.html')) return;
   void (async () => {
     if (message.action === 'connect') connect();
-    else if (message.action === 'share') await share(message.tabId, message.sessionId, message.origin);
+    else if (message.action === 'share') await share(message.tabId, message.sessionId, message.page);
     else if (message.action === 'disconnect') await revoke('Disconnected by you.');
     else if (message.action !== 'status') throw new Error('Unknown UI action.');
-    return { ready, session, shared: grant ? { tabId: grant.tabId, origin: grant.origin } : null, error: lastError };
+    return { ready, session, shared: grant ? { tabId: grant.tabId } : null, error: lastError };
   })().then(reply, error => reply({ error: String(error.message || error) }));
   return true;
 });

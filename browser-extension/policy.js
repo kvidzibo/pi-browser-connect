@@ -16,6 +16,14 @@ export function webOrigin(url) {
   return parsed.origin;
 }
 
+// A shared tab may show HTTP(S) pages or the blank page. Returns the label shown to the user.
+export function sharedPage(url) {
+  return /^about:blank(?:[?#]|$)/.test(url) ? 'about:blank' : webOrigin(url);
+}
+// New-tab and internal pages hide their URL, even from activeTab, and cannot be
+// debugged; sharing one loads about:blank in the tab first.
+export const shareTarget = url => url === undefined ? 'about:blank' : sharedPage(url);
+
 export function validateParams(params) {
   if (!params || typeof params !== 'object' || Array.isArray(params) || !actions.includes(params.action)) throw new Error('Unknown browser action.');
   const fields = { tabs: [], snapshot: [], inspect: ['selector'], click: ['ref'], type: ['ref', 'text'], press: ['ref', 'key'], scroll: ['direction'], navigate: ['url'], screenshot: [], evaluate: ['expression'] }[params.action];

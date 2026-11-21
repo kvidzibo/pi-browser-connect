@@ -1,4 +1,8 @@
+import { shareTarget } from './policy.js';
+
 const $ = id => document.getElementById(id);
+// Origin, or about:blank for blank, new-tab and internal pages; undefined when the tab cannot be shared.
+const page = () => { try { return tab ? shareTarget(tab.url) : undefined; } catch { return undefined; } };
 let current;
 let tab;
 let sending = false;
@@ -16,13 +20,11 @@ async function render(state) {
   $('session').textContent = state.session?.label || '';
   $('code').textContent = state.session?.code || '';
   $('target').hidden = !state.session;
-  $('title').textContent = sharedHere ? 'Currently shared tab' : tab?.title || 'No tab selected';
-  let origin = '';
-  try { origin = new URL(tab.url).origin; } catch {}
-  $('origin').textContent = sharedHere ? state.shared.origin : origin;
+  $('title').textContent = sharedHere ? 'Currently shared tab' : tab?.title || (tab ? 'New or internal tab' : 'No tab selected');
+  $('origin').textContent = page() !== 'about:blank' ? page() || '' : sharedHere ? '' : 'Sharing opens a blank page in this tab.';
   $('connect').hidden = Boolean(state.ready);
   $('share').hidden = !state.session || Boolean(state.shared);
-  $('share').disabled = !tab?.url?.match(/^https?:\/\//) || tab.incognito;
+  $('share').disabled = !page() || tab.incognito;
   $('disconnect').hidden = !state.session;
   $('error').hidden = !state.error;
   $('error').textContent = state.error || '';
@@ -34,8 +36,7 @@ async function send(action) {
   const buttons = Array.from(document.querySelectorAll('button'));
   buttons.forEach(button => { button.disabled = true; });
   try {
-    const origin = tab?.url?.match(/^https?:\/\//) ? new URL(tab.url).origin : undefined;
-    const state = await chrome.runtime.sendMessage({ action, tabId: tab?.id, origin, sessionId: current?.session?.sessionId });
+    const state = await chrome.runtime.sendMessage({ action, tabId: tab?.id, page: page(), sessionId: current?.session?.sessionId });
     await render(state);
   } catch (error) {
     $('error').hidden = false;
@@ -43,7 +44,7 @@ async function send(action) {
   } finally {
     sending = false;
     buttons.forEach(button => { button.disabled = false; });
-    $('share').disabled = !tab?.url?.match(/^https?:\/\//) || tab.incognito;
+    $('share').disabled = !page() || tab.incognito;
   }
 }
 $('connect').onclick = () => send('connect');

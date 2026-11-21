@@ -98,11 +98,13 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   // Observe successful real API calls, without replacing icon rendering or grants.
   await worker.evaluate(() => {
     globalThis.scriptEvaluations = [];
+    globalThis.focusEmulations = 0;
     const sendCommand = chrome.debugger.sendCommand.bind(chrome.debugger);
     chrome.debugger.sendCommand = async (target, method, params) => {
       if (method === 'Runtime.evaluate' && params.timeout === 5000) {
         globalThis.scriptEvaluations.push({ contextId: params.contextId, timeout: params.timeout, awaitPromise: params.awaitPromise, returnByValue: params.returnByValue });
       }
+      if (method === 'Emulation.setFocusEmulationEnabled' && params.enabled) globalThis.focusEmulations++;
       return sendCommand(target, method, params);
     };
     globalThis.completedIconPaths = { global: chrome.runtime.getManifest().action.default_icon };
@@ -160,6 +162,8 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await indicator(false);
   const fixture = await context.newPage();
   await fixture.goto(url);
+  // Tabs whose URL is hidden are offered as blank tabs; wait until activeTab reveals the fixture.
+  const shareable = async () => await popup.locator('#origin').textContent() === new URL(url).origin && !(await popup.locator('#share').isDisabled());
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${extensionId}/popup.html`);
   await connecting;
@@ -179,7 +183,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   // A real browser shortcut grants activeTab, just like clicking the toolbar icon.
   execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
   await delay(300);
-  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await eventually(shareable);
   const captures = process.env.BROWSER_CONNECT_SCREENSHOTS;
   if (captures) {
     assert.ok(resolve(captures).startsWith('/tmp/'), 'Screenshots must stay under /tmp');
@@ -317,10 +321,24 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await call({ action: 'snapshot' });
   await call({ action: 'scroll', direction: 'down' });
   assert.ok(await fixture.evaluate(() => scrollY > 0));
-  await assert.rejects(call({ action: 'navigate', url: 'https://example.com' }), /Cross-origin/);
+  // The grant follows the tab: links and navigation may cross origins.
+  assert.equal(await worker.evaluate(() => globalThis.focusEmulations), 1, 'Sharing enables focus emulation for background work');
+  const otherOrigin = `http://localhost:${server.address().port}/`;
+  snapshot = data(await call({ action: 'snapshot' }));
+  await call({ action: 'click', ref: snapshot.elements.find(element => element.label === 'Other origin').ref });
+  await fixture.waitForURL(otherOrigin + 'other');
+  assert.equal(data(await call({ action: 'snapshot' })).url, otherOrigin + 'other');
+  await call({ action: 'navigate', url: url + 'next' });
+  await fixture.waitForURL(url + 'next');
+  assert.deepEqual(data(await call({ action: 'tabs' })).tabs, [{ title: 'Shared tab fixture', url: url + 'next' }]);
+  // A failed load is reported and keeps the tab shared.
+  await assert.rejects(call({ action: 'navigate', url: 'http://127.0.0.1:1/' }), /Navigation failed/);
+  await assert.rejects(call({ action: 'snapshot' }), /failed to load/);
+  assert.equal(data(await call({ action: 'tabs' })).tabs.length, 1);
   await call({ action: 'navigate', url: url + 'next' });
   await fixture.waitForURL(url + 'next');
   await call({ action: 'snapshot' });
+  await indicator(true);
   assert.equal(approvals.length, sessionApprovalCount, 'Session approval also suppresses navigation prompts');
   if (captures) {
     await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-shared.png') });
@@ -341,7 +359,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await fixture.bringToFront();
   execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
   await delay(300);
-  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await eventually(shareable);
   await popup.evaluate(() => document.querySelector('#share').click());
   await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
   await indicator(true);
@@ -413,7 +431,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await fixture.bringToFront();
   execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
   await delay(300);
-  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await eventually(shareable);
   await popup.evaluate(() => document.querySelector('#share').click());
   await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
   await indicator(true);
@@ -435,14 +453,17 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await fixture.bringToFront();
   execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
   await delay(300);
-  await eventually(async () => !(await popup.locator('#share').isDisabled()));
+  await eventually(shareable);
   await popup.evaluate(() => document.querySelector('#share').click());
   await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
   snapshot = data(await call({ action: 'snapshot' }));
   approval = 'Deny';
   await assert.rejects(call({ action: 'type', ref: snapshot.elements.find(element => element.label === 'Message').ref, text: 'Still denied' }), /denied/);
   assert.equal(await fixture.locator('#message').inputValue(), 'After reconnect');
+  // Your own cross-origin navigation keeps the tab shared; internal pages revoke it.
   await fixture.goto(`http://localhost:${server.address().port}/other`);
+  assert.equal(data(await call({ action: 'snapshot' })).url, `http://localhost:${server.address().port}/other`);
+  await fixture.goto('chrome://version/');
   await eventually(async () => { try { await call({ action: 'snapshot' }); return false; } catch (error) { return /Not connected|revoked|changed|closed/.test(error.message); } });
   await indicator(false);
   await assert.rejects(call({ action: 'evaluate', expression: '1' }), /Not connected|revoked|No shared tab/);
@@ -450,6 +471,24 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await command('disconnect', ctx);
   await assert.rejects(call({ action: 'tabs' }), /Not connected/);
   assert.ok(approvals.length >= 6);
+  // A new tab can be shared: it becomes about:blank and Pi navigates it anywhere.
+  await command('connect', ctx);
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');
+  await fixture.bringToFront();
+  await popup.evaluate(async () => { await chrome.tabs.create({ windowId: (await chrome.tabs.getCurrent()).windowId, active: true }); });
+  await delay(500);
+  execFileSync('xdotool', ['key', '--clearmodifiers', 'ctrl+shift+y']);
+  await delay(300);
+  await eventually(async () => await popup.locator('#origin').textContent() === 'Sharing opens a blank page in this tab.' && !(await popup.locator('#share').isDisabled()));
+  if (captures) await popup.locator('main').screenshot({ path: join(captures, 'browser-connect-blank.png') });
+  await popup.evaluate(() => document.querySelector('#share').click());
+  await eventually(async () => await popup.locator('#badge').textContent() === 'Tab shared');
+  assert.deepEqual(data(await call({ action: 'tabs' })).tabs.map(tab => tab.url), ['about:blank']);
+  assert.deepEqual(data(await call({ action: 'snapshot' })).elements, []);
+  approval = 'Approve once';
+  await call({ action: 'navigate', url });
+  await eventually(async () => { try { return data(await call({ action: 'snapshot' })).title === 'Shared tab fixture'; } catch { return false; } });
+  await command('disconnect', ctx);
   // Evaluation cannot grant tab access, and approval cannot survive a changed connection.
   await command('connect', ctx);
   await eventually(async () => await popup.locator('#badge').textContent() === 'Awaiting your permission');

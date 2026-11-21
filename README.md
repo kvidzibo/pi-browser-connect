@@ -18,7 +18,7 @@ pi install npm:@kvidzibo/pi-browser-connect
 2. Choose **Chromium** or **Google Chrome**. Pi registers the local bridge and prints the browser-extension folder—no terminal setup command or extension ID needed.
 3. Open `chrome://extensions`, enable **Developer mode**, and **Load unpacked** that folder.
 4. On the tab you want to share, click **Pi Browser Connect** in your browser toolbar (or **Ctrl+Shift+Y**). The bridge starts and the popup updates automatically.
-5. Compare the pairing code with Pi and click **Share this tab with Pi**.
+5. Compare the pairing code with Pi and click **Share this tab with Pi**. A new or blank tab works too: sharing loads a blank page that Pi can navigate.
 
 Pi waits up to two minutes for the popup. If setup takes longer, run `/browser-connect` again and choose **Already registered**. Once installed, open the popup, run `/browser-connect`, and share; no setup is needed again.
 
@@ -45,7 +45,7 @@ Ask Pi, for example:
 
 > Use browser_connect to inspect the tab I shared. Summarize it without changing anything.
 
-The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, `screenshot`, and `evaluate`. Typing **replaces** an input's text. Clicks, typing, keypresses, navigation, and scripts open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab, origin, or reference checks. Scripts can access sensitive DOM data; the element-level exclusions for inspection and reference-based actions do not sandbox scripts. Noninteractive mutations still fail closed.
+The `browser_connect` tool supports `tabs`, `snapshot`, `inspect`, `click`, `type`, `press`, `scroll`, `navigate`, `screenshot`, and `evaluate`. Typing **replaces** an input's text. Clicks, typing, keypresses, navigation, and scripts open Pi's native approval menu: **Deny**, **Approve once**, or **Approve all for this session**. Session approval skips further action prompts until disconnect, session/branch change, or `/reload`; it is never saved. It does not grant tab access or bypass shared-tab or reference checks. Scripts can access sensitive DOM data; the element-level exclusions for inspection and reference-based actions do not sandbox scripts. Noninteractive mutations still fail closed.
 
 For image blur or layout debugging, use `{"action":"inspect","selector":"img"}`. Inspection returns each match's CSS classes, sanitized opening HTML tag, fixed computed styles (including `filter` and `backdrop-filter`), and up to five ancestors. It is read-only, needs no action confirmation, and preserves existing snapshot references.
 
@@ -65,6 +65,14 @@ Scripts run synchronously in a fresh isolated JavaScript world in the shared mai
 
 **Scripts are not sandboxed from the page's sensitive data or signed-in requests.** They bypass the element-level exclusions used by inspection and reference-based actions. Never request or return credentials, tokens, payment details, or other secrets. They can change the DOM, send requests, or schedule later work. Denial prevents dispatch, but failure, timeout, cancellation, or disconnect cannot undo changes or guarantee scheduled work stops. Do not automatically retry. Removing CSS cannot recover an image blurred on the server; local CSS changes normally disappear on reload.
 
+### Navigation and background work
+
+Sharing follows the tab, not a site. Pi can `navigate` the shared tab to any HTTP(S) URL and follow links across sites; your own navigation in that tab keeps it shared too. Each navigation asks for approval unless you chose **Approve all for this session**, which then covers every site the tab visits. Share a dedicated tab or window rather than one you are using.
+
+The shared tab does not need focus. Put it in its own window and keep working elsewhere: Pi can navigate, read, click, type, press keys, and take screenshots while the window is unfocused, covered, on another workspace, or while the tab is in the background. The extension enables Chromium's focus emulation for the shared tab, so the page sees itself as visible and focused and its timers are not throttled. Pi's actions do not raise the window or take keyboard focus.
+
+Tabs or windows opened by a page are not shared. A page dialog (`alert`, `confirm`, print) blocks the tab until you dismiss it. A minimized window is untested.
+
 ### Commands
 
 - `/browser-connect` (or `/browser-connect connect`) — connect, with guided setup when no bridge is running.
@@ -75,17 +83,17 @@ Scripts run synchronously in a fresh isolated JavaScript world in the shared mai
 
 The toolbar icon shows a **red dot** on every tab until you share one. Only the shared tab shows a **green dot** and the “Tab shared” tooltip; other tabs and windows stay red. A ready bridge or pending pairing alone stays red. Chrome also shows “started debugging this browser” on every window while a tab is shared. That bar belongs to the browser and cannot be limited to one tab or window.
 
-Closing the shared tab, leaving its origin, detaching debugging, closing Pi, switching sessions/branches, or `/reload` revokes sharing. There is no automatic Pi reconnection or tab sharing. Opening the popup starts only the local transport. A cancelled or timed-out action may already have run; never blindly retry it.
+Closing the shared tab, opening an internal browser page in it, detaching debugging, closing Pi, switching sessions/branches, or `/reload` revokes sharing. There is no automatic Pi reconnection or tab sharing. Opening the popup starts only the local transport. A cancelled or timed-out action may already have run; never blindly retry it.
 
 ## Privacy and limitations
 
 **This controls your real, signed-in browser. It is not a sandbox.** Shared page content and unredacted screenshots can reach your model provider and remain in Pi transcripts. Avoid sensitive pages.
 
-The browser extension has a powerful `debugger` permission, but its code restricts requests to the shared tab and origin. The pairing code identifies the session; it is not a password. Private Unix socket permissions protect against other OS users, **not malicious code running as you**. Pi approval is enforced by the Pi tool, not a security boundary against other same-user programs.
+The browser extension has a powerful `debugger` permission, but its code restricts requests to the shared tab. The pairing code identifies the session; it is not a password. Private Unix socket permissions protect against other OS users, **not malicious code running as you**. Pi approval is enforced by the Pi tool, not a security boundary against other same-user programs.
 
 Snapshots cover the main document only, not iframe or shadow-root controls, and omit input values. Password, file, OTP, and payment-autocomplete fields are excluded from reference-based actions; this is not complete secret detection. Screenshots remain unredacted. Clicks and text replacement use DOM events; applications requiring trusted pointer/input events may not accept them. Keyboard events use Chromium input dispatch.
 
-Same-origin navigation is supported. Cross-origin links are rejected when detectable; script-driven navigation revokes access after the navigation event. This is **not a network firewall**: the page can load resources, submit requests, or open unshared tabs. Internal browser pages and `file:` URLs are unsupported.
+**A shared tab is not limited to one site.** Pi, an approved script, or the page itself can take it to any website where you are signed in; with session approval, no further prompt appears. This is **not a network firewall**: the page can load resources, submit requests, or open unshared tabs. Internal browser pages and `file:` URLs are unsupported; opening one ends sharing. A new-tab or internal page can be shared only by replacing it with a blank page.
 
 ## Development
 
