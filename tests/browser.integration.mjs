@@ -99,12 +99,14 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await worker.evaluate(() => {
     globalThis.scriptEvaluations = [];
     globalThis.focusEmulations = 0;
+    globalThis.overlay = [];
     const sendCommand = chrome.debugger.sendCommand.bind(chrome.debugger);
     chrome.debugger.sendCommand = async (target, method, params) => {
       if (method === 'Runtime.evaluate' && params.timeout === 5000) {
         globalThis.scriptEvaluations.push({ contextId: params.contextId, timeout: params.timeout, awaitPromise: params.awaitPromise, returnByValue: params.returnByValue });
       }
       if (method === 'Emulation.setFocusEmulationEnabled' && params.enabled) globalThis.focusEmulations++;
+      if (method.startsWith('Overlay.')) globalThis.overlay.push(method);
       if (globalThis.failWorldToken && method === 'Runtime.evaluate' && params.expression.includes('__piBrowserConnectWorld ??=')) return { exceptionDetails: {} };
       return sendCommand(target, method, params);
     };
@@ -291,7 +293,12 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await assert.rejects(call({ action: 'type', ref: input.ref, text: 'repeat' }), /reference/);
   snapshot = data(await call({ action: 'snapshot' }));
   const save = snapshot.elements.find(element => element.label === 'Save draft');
+  const overlayBefore = (await worker.evaluate(() => globalThis.overlay)).length;
+  const clickStarted = Date.now();
   await call({ action: 'click', ref: save.ref });
+  // The target is highlighted through the debugger overlay, held briefly, then cleared; the page DOM is untouched.
+  assert.ok(Date.now() - clickStarted >= 400, 'The highlight stays up long enough to notice');
+  assert.deepEqual((await worker.evaluate(() => globalThis.overlay)).slice(overlayBefore), ['Overlay.highlightNode', 'Overlay.hideHighlight']);
   assert.equal(approvals.length, 6, 'Approve once must prompt again for the next mutation');
   assert.match(approvals.at(-1), /click/);
   assert.match(approvals.at(-1), /Save draft/);
@@ -316,6 +323,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   const old = snapshot.elements.find(element => element.label === 'Save draft');
   await fixture.locator('#save').evaluate(element => { element.textContent = 'Changed action'; });
   await assert.rejects(call({ action: 'click', ref: old.ref }), /Stale/);
+  assert.equal((await worker.evaluate(() => globalThis.overlay)).at(-1), 'Overlay.hideHighlight', 'A rejected action leaves no highlight behind');
   const image = await call({ action: 'screenshot' });
   assert.equal(image.content[1].type, 'image');
   assert.ok(Buffer.from(image.content[1].data, 'base64').length > 1000);

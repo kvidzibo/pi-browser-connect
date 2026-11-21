@@ -119,6 +119,22 @@ async function world(expected, suffix = '') {
   if (typeof token !== 'string' || (await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Take a fresh snapshot.');
   return { contextId: result.executionContextId, loaderId: current.loaderId, token };
 }
+// Show the user what Pi acts on. The debugger's overlay is drawn outside the page:
+// no DOM change, so snapshots, references and page scripts are unaffected.
+// Purely visual: a failure here never fails or blocks the action.
+const highlightColor = { r: 37, g: 99, b: 235, a: 0.45 };
+const highlightGroup = 'pi-browser-connect-highlight';
+async function highlight(expected, current, ref) {
+  try {
+    const { result } = await cdp(expected, 'Runtime.evaluate', {
+      expression: `(() => { ${guard(current)} return globalThis.__piBrowserConnect?.refs.get(${JSON.stringify(ref)})?.el; })()`,
+      contextId: current.contextId, objectGroup: highlightGroup,
+    });
+    if (!result?.objectId) return false;
+    await cdp(expected, 'Overlay.highlightNode', { objectId: result.objectId, highlightConfig: { showInfo: false, contentColor: highlightColor, paddingColor: highlightColor, borderColor: highlightColor } });
+    return true;
+  } catch { return false; }
+}
 async function execute(params, expected) {
   validateParams(params);
   if (params.action === 'tabs' && !expected) return { tabs: [], message: 'No tab shared. Click the browser extension and compare the pairing code.' };
@@ -186,16 +202,26 @@ async function execute(params, expected) {
   if (!current || (await frame(expected)).loaderId !== current.loaderId) throw new Error('Take a fresh snapshot before interacting.');
   // Consume references before dispatch, even when a later step fails.
   expected.world = undefined;
-  const result = await evaluate(expected, actOnPage, [expected.epoch, params], current);
-  if (params.action === 'press') {
-    if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed; keypress cancelled.');
-    const key = keys[params.key];
-    await cdp(expected, 'Input.dispatchKeyEvent', { type: 'keyDown', ...key });
-    if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed after keyDown; action may already have run.');
-    const { text: _text, ...release } = key;
-    await cdp(expected, 'Input.dispatchKeyEvent', { type: 'keyUp', ...release });
+  const highlighted = params.ref !== undefined && await highlight(expected, current, params.ref);
+  try {
+    const result = await evaluate(expected, actOnPage, [expected.epoch, params], current);
+    if (params.action === 'press') {
+      if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed; keypress cancelled.');
+      const key = keys[params.key];
+      await cdp(expected, 'Input.dispatchKeyEvent', { type: 'keyDown', ...key });
+      if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed after keyDown; action may already have run.');
+      const { text: _text, ...release } = key;
+      await cdp(expected, 'Input.dispatchKeyEvent', { type: 'keyUp', ...release });
+    }
+    // Keep the highlight up long enough to notice; requests are serialized, so no screenshot can capture it.
+    if (highlighted) await new Promise(resolve => setTimeout(resolve, 400));
+    return result;
+  } finally {
+    if (highlighted) {
+      await cdp(expected, 'Overlay.hideHighlight').catch(() => {});
+      await cdp(expected, 'Runtime.releaseObjectGroup', { objectGroup: highlightGroup }).catch(() => {});
+    }
   }
-  return result;
 }
 async function respond(message) {
   const owner = session;
@@ -249,6 +275,8 @@ async function share(tabId, sessionId, expectedPage) {
     // Keep the page focused and visible to itself, so timers, focus and key events
     // work while the user is in another tab, window or workspace.
     await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+    // The overlay highlights Pi's targets; it is optional, so sharing works without it.
+    try { await send('DOM.enable'); await send('Overlay.enable'); } catch { /* Actions run unhighlighted. */ }
     supported((await send('Page.getFrameTree')).frameTree.frame);
     if (owner !== session) throw new Error('Pi disconnected while sharing.');
     grant = { tabId, sessionId: owner.sessionId, epoch: crypto.randomUUID() };

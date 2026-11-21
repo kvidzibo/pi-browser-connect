@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Pi Browser Connect",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Share one browser tab with a local Pi agent. Disconnect at any time.",
   "minimum_chrome_version": "125",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv6336I74ZGrlSAFvlAzjx+RneX5WotTKGJCs5gkw77ukZPIkl1GByojgAL+BNKMVvFs7Cw+Q7RUIY0hzqPsKjy8XG0Lt+MDm0k0tL4SiMtItrOlkwMg8M6oqWPfq/NXnu/FIWkQAvrRaodNphLglm1aO5bcElNZZGSa4gy1kr1SdG9XD5/KQQ9BHgSh7ubuwpxsvzpxX3pzT9hZpaq4Q9ckyP0hJ2H93Dn6ppUgImHcQsjupveJFCBSEweUQ6LI/FF9cL93ZrEedbiFYCtSERiEP++pYX96txgvU8CbQiq0kTE0Gz3cc7vLlbALW0WWKKzk/MDg6KXdjD4FctmzsUwIDAQAB",

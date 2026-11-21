@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+Show what Pi is doing: the element Pi clicks, types into, or sends a key to is highlighted in the shared tab for about 0.4 seconds. The highlight is drawn by the browser's debugging overlay, not added to the page, so pages cannot see it and it never appears in Pi's snapshots or screenshots. Each highlighted action takes about 0.4 seconds longer. Reload the browser extension and share the tab again. Browser extension version: 0.6.0.
+
 ## 0.6.0
 
 Sharing now follows the tab instead of one origin: Pi can navigate the shared tab to any HTTP(S) site and follow cross-site links, under the same per-action or session approval. New and blank tabs can be shared. The shared tab works without focus—in an unfocused or covered window, on another workspace, or as a background tab—through Chromium focus emulation. Failed navigations are reported, and the green indicator survives navigation. Internal browser pages still end sharing. Browser extension version: 0.5.0.
