@@ -217,10 +217,9 @@ async function execute(params, expected) {
     if (highlighted) await new Promise(resolve => setTimeout(resolve, 400));
     return result;
   } finally {
-    if (highlighted) {
-      await cdp(expected, 'Overlay.hideHighlight').catch(() => {});
-      await cdp(expected, 'Runtime.releaseObjectGroup', { objectGroup: highlightGroup }).catch(() => {});
-    }
+    if (highlighted) await cdp(expected, 'Overlay.hideHighlight').catch(() => {});
+    // The element handle exists even when highlighting failed.
+    if (params.ref !== undefined) await cdp(expected, 'Runtime.releaseObjectGroup', { objectGroup: highlightGroup }).catch(() => {});
   }
 }
 async function respond(message) {
