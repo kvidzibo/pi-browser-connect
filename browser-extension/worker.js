@@ -116,7 +116,7 @@ async function world(expected, suffix = '') {
   // Snapshot and inspection share one world; keep its first token so references stay valid.
   const token = (await cdp(expected, 'Runtime.evaluate', { expression: `globalThis.__piBrowserConnectWorld ??= ${JSON.stringify(crypto.randomUUID())}`, contextId: result.executionContextId, returnByValue: true })).result?.value;
   // Frame IDs survive navigation: make sure the world and token belong to the checked document.
-  if ((await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Take a fresh snapshot.');
+  if (typeof token !== 'string' || (await frame(expected)).loaderId !== current.loaderId) throw new Error('Document changed. Take a fresh snapshot.');
   return { contextId: result.executionContextId, loaderId: current.loaderId, token };
 }
 async function execute(params, expected) {

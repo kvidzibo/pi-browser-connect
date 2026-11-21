@@ -105,6 +105,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
         globalThis.scriptEvaluations.push({ contextId: params.contextId, timeout: params.timeout, awaitPromise: params.awaitPromise, returnByValue: params.returnByValue });
       }
       if (method === 'Emulation.setFocusEmulationEnabled' && params.enabled) globalThis.focusEmulations++;
+      if (globalThis.failWorldToken && method === 'Runtime.evaluate' && params.expression.includes('__piBrowserConnectWorld ??=')) return { exceptionDetails: {} };
       return sendCommand(target, method, params);
     };
     globalThis.completedIconPaths = { global: chrome.runtime.getManifest().action.default_icon };
@@ -333,6 +334,12 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   await call({ action: 'navigate', url: url + 'next' });
   await fixture.waitForURL(url + 'next');
   assert.deepEqual(data(await call({ action: 'tabs' })).tabs, [{ title: 'Shared tab fixture', url: url + 'next' }]);
+  // A world whose token could not be set is never used.
+  await worker.evaluate(() => { globalThis.failWorldToken = true; });
+  await assert.rejects(call({ action: 'snapshot' }), /Document changed/);
+  await assert.rejects(call({ action: 'evaluate', expression: 'document.title = "ran"' }), /Document changed/);
+  await worker.evaluate(() => { globalThis.failWorldToken = false; });
+  assert.equal(await fixture.title(), 'Shared tab fixture');
   // Plain HTTP sites are not secure contexts; references must still work there.
   const insecure = `http://insecure.test:${server.address().port}/`;
   await call({ action: 'navigate', url: insecure });
