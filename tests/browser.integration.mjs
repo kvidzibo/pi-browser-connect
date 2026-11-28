@@ -80,7 +80,7 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   }
   server = createServer((req, res) => {
     res.setHeader('Content-Type', 'text/html');
-    res.end(`<!doctype html><html><head><title>Shared tab fixture</title><style>.blur-parent { filter: blur(8px); }</style></head><body style="font:20px system-ui;padding:48px"><h1>Browser Connect fixture</h1><label>Message <input id="message"></label><button id="save" onclick="document.querySelector('#result').textContent='Saved: '+document.querySelector('#message').value">Save draft</button><p id="result">Not saved</p><input type="password" value="fixture-secret"><form id="form-secret"><img class="form-image"></form><a href="http://localhost:${server.address().port}/other">Other origin</a><a href="javascript:void(document.querySelector('#result').textContent='Script link ran')">Script link</a><div class="blur-parent"><img class="picture" role="img" style=\'filter:url("https://example.test/a)fixture-url-secret")\' src="/fixture-image-secret.png" onerror="void('fixture-event-secret')" data-private="fixture-data-secret"></div>${'<div class="inspect-match"></div>'.repeat(12)}<div style="height:1200px"></div><p>Bottom</p></body></html>`);
+    res.end(`<!doctype html><html><head><title>Shared tab fixture</title><style>.blur-parent { filter: blur(8px); }</style></head><body style="font:20px system-ui;padding:48px"><h1>Browser Connect fixture</h1><label>Message <input id="message"></label><button id="save" onclick="document.querySelector('#result').textContent='Saved: '+document.querySelector('#message').value">Save draft</button><p id="result">Not saved</p><input type="password" value="fixture-secret"><form id="form-secret"><img class="form-image"></form><a href="http://localhost:${server.address().port}/other">Other origin</a><a href="javascript:void(document.querySelector('#result').textContent='Script link ran')">Script link</a><div class="blur-parent"><img class="picture" role="img" style=\'filter:url("https://example.test/a)fixture-url-secret")\' src="/fixture-image-secret.png" onerror="void('fixture-event-secret')" data-private="fixture-data-secret"></div>${'<div class="inspect-match"></div>'.repeat(12)}<div id="card" style="cursor:pointer"><span>Open card</span></div><div id="editor" contenteditable="true" data-placeholder="Notes"><p>Editor draft text</p></div><div style="height:1200px"></div><p>Bottom</p><script>document.querySelector('#card').addEventListener('click', () => { document.querySelector('#result').textContent = 'Card opened'; });</script></body></html>`);
   });
   await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen));
   const url = `http://127.0.0.1:${server.address().port}/`;
@@ -322,8 +322,35 @@ test('isolated Chromium → native host → loaded Pi tool: sharing, actions, re
   snapshot = data(await call({ action: 'snapshot' }));
   const old = snapshot.elements.find(element => element.label === 'Save draft');
   await fixture.locator('#save').evaluate(element => { element.textContent = 'Changed action'; });
-  await assert.rejects(call({ action: 'click', ref: old.ref }), /Stale/);
+  await assert.rejects(call({ action: 'click', ref: old.ref }), /Stale element reference/);
   assert.equal((await worker.evaluate(() => globalThis.overlay)).at(-1), 'Overlay.hideHighlight', 'A rejected action leaves no highlight behind');
+  // Unrelated page changes, such as a ticking timer, leave other references usable.
+  snapshot = data(await call({ action: 'snapshot' }));
+  await fixture.evaluate(() => {
+    document.querySelector('#result').textContent = 'Ticked';
+    document.body.append(document.createElement('div'));
+  });
+  await call({ action: 'click', ref: snapshot.elements.find(element => element.label === 'Changed action').ref });
+  assert.equal(await fixture.locator('#result').textContent(), 'Saved: Hello from Pi');
+  // A plain element with a script click handler and a pointer cursor is listed once; its pointer-cursor child is not.
+  snapshot = data(await call({ action: 'snapshot' }));
+  const cards = snapshot.elements.filter(element => element.label === 'Open card');
+  assert.deepEqual(cards.map(element => element.tag), ['div']);
+  assert.equal(snapshot.elements.some(element => element.tag === 'span'), false);
+  await call({ action: 'click', ref: cards[0].ref });
+  assert.equal(await fixture.locator('#result').textContent(), 'Card opened');
+  // Typing replaces a rich-text editor's text; the snapshot labels it without that text.
+  snapshot = data(await call({ action: 'snapshot' }));
+  const editor = snapshot.elements.find(element => element.label === 'Notes');
+  assert.equal(editor.tag, 'div');
+  assert.doesNotMatch(JSON.stringify(snapshot.elements), /Editor draft/);
+  await call({ action: 'type', ref: editor.ref, text: 'Typed into editor' });
+  assert.equal(await fixture.locator('#editor').textContent(), 'Typed into editor');
+  // A reference to a removed element is rejected.
+  snapshot = data(await call({ action: 'snapshot' }));
+  const removed = snapshot.elements.find(element => element.label === 'Open card');
+  await fixture.locator('#card').evaluate(element => element.remove());
+  await assert.rejects(call({ action: 'click', ref: removed.ref }), /Stale element reference/);
   const image = await call({ action: 'screenshot' });
   assert.equal(image.content[1].type, 'image');
   assert.ok(Buffer.from(image.content[1].data, 'base64').length > 1000);
