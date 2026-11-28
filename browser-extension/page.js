@@ -2,28 +2,37 @@
 // Keep them self-contained: only fixed code and JSON arguments cross that boundary.
 // The worker supplies the ID: crypto.randomUUID() is unavailable on insecure HTTP pages.
 export function snapshotPage(epoch, id) {
-  const previous = globalThis.__piBrowserConnect;
-  previous?.observer.disconnect();
-  const state = { epoch, id, url: location.href, refs: new Map(), dirty: false };
+  const state = { epoch, id, url: location.href, refs: new Map() };
   const visible = (el) => {
     const rect = el.getBoundingClientRect();
     const style = getComputedStyle(el);
     return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
   };
   const elements = [];
-  const selector = 'a[href],button,input,textarea,select,[role="button"],[role="link"],[role="textbox"]';
-  for (const el of document.querySelectorAll(selector)) {
+  const controls = 'a[href],button,input,textarea,select,summary,[onclick],[role="button"],[role="link"],[role="textbox"],[role="tab"],[role="menuitem"],[role="checkbox"],[role="radio"],[role="switch"],[role="option"]';
+  const editor = '[contenteditable]:not([contenteditable="false"])';
+  const selector = `${controls},${editor}`;
+  // A rich-text editor is listed once, as its editing host.
+  const host = el => el.matches(editor) && el.isContentEditable && !el.parentElement?.isContentEditable;
+  // Script click handlers on plain elements: where the pointer cursor starts, outside other controls.
+  const pointer = el => getComputedStyle(el).cursor === 'pointer' && (!el.parentElement || getComputedStyle(el.parentElement).cursor !== 'pointer') && !el.closest(selector);
+  const sensitive = el => el.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(el.getAttribute('autocomplete') || '');
+  // Like input values, an editor's text is never used as a label: not for the editor, an element in it, or one containing it.
+  // Kept with the references: an action rechecks the label that the approval prompt showed.
+  state.label = el => (el.isContentEditable || el.closest(editor) || el.querySelector(editor) ? el.getAttribute('aria-label') || el.getAttribute('aria-placeholder') || el.getAttribute('data-placeholder') || el.getAttribute('title') || ''
+    : el.getAttribute('aria-label') || Array.from(el.labels || []).map(l => l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 160);
+  for (const el of document.querySelectorAll('*')) {
+    if (!(el.matches(controls) || host(el) || pointer(el))) continue;
     if (!visible(el) || el.closest('[inert]')) continue;
-    if (el.matches('input[type="password"],input[type="file"],input[type="hidden"]')) continue;
-    if (/password|one-time-code|cc-/i.test(el.autocomplete || '')) continue;
-    const label = (el.getAttribute('aria-label') || Array.from(el.labels || []).map(l => l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 160);
+    // A label, or an element inside one, forwards its click to the label's control.
+    const control = el.closest('label')?.control;
+    if (sensitive(el) || (control && sensitive(control))) continue;
+    const label = state.label(el);
     const ref = `${id}:${elements.length + 1}`;
     state.refs.set(ref, { el, html: el.outerHTML, label });
-    elements.push({ ref, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.getAttribute('type') || undefined, label, disabled: Boolean(el.disabled) });
+    elements.push({ ref, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.getAttribute('type') || undefined, label, disabled: el.matches(':disabled') || Boolean(control?.matches(':disabled')) });
     if (elements.length >= 200) break;
   }
-  state.observer = new MutationObserver(() => { state.dirty = true; });
-  state.observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
   globalThis.__piBrowserConnect = state;
   const text = document.body?.innerText || '';
   return {
@@ -79,30 +88,42 @@ export function inspectPage(selector) {
 export function actOnPage(epoch, params) {
   const state = globalThis.__piBrowserConnect;
   if (params.action === 'scroll') {
-    if (state) { state.refs.clear(); state.observer.disconnect(); }
+    state?.refs.clear();
     window.scrollBy({ top: params.direction === 'up' ? -600 : 600, behavior: 'instant' });
     return { message: 'Scrolled. Take a fresh snapshot before interacting.' };
   }
-  if (!state || state.epoch !== epoch || state.url !== location.href || state.dirty || state.observer.takeRecords().length) {
+  if (!state || state.epoch !== epoch || state.url !== location.href) {
     throw new Error('Stale snapshot. Take a fresh snapshot before interacting.');
   }
   const entry = state.refs.get(params.ref);
   const el = entry?.el;
-  if (!el?.isConnected || el.outerHTML !== entry.html) throw new Error('Stale element reference. Take a fresh snapshot.');
-  if (el.disabled || el.closest('[inert]') || el.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(el.autocomplete || '')) {
+  if (!el?.isConnected || el.getRootNode() !== document || el.outerHTML !== entry.html || state.label(el) !== entry.label) throw new Error('Stale element reference. Take a fresh snapshot.');
+  // A label, or an element inside one, forwards its click to the label's control: check that control too.
+  const blocked = target => target.matches(':disabled') || target.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(target.getAttribute('autocomplete') || '');
+  const control = el.closest('label')?.control;
+  if (el.closest('[inert]') || blocked(el) || (control && blocked(control))) {
     throw new Error('This control is disabled or sensitive. Use it manually.');
   }
   const rect = el.getBoundingClientRect();
   if (!rect.width || !rect.height || getComputedStyle(el).visibility === 'hidden') throw new Error('Element is not visible.');
-  if (params.action === 'type' && !(el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && ['text', 'email', 'search', 'tel', 'url', 'number'].includes(el.type)))) {
-    throw new Error('Typing supports ordinary text inputs and textareas only.');
+  const editing = el.isContentEditable && el.matches('[contenteditable]:not([contenteditable="false"])') && !el.parentElement?.isContentEditable;
+  if (params.action === 'type' && !editing && !(el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && ['text', 'email', 'search', 'tel', 'url', 'number'].includes(el.type)))) {
+    throw new Error('Typing supports ordinary text inputs, textareas and rich-text editors (contenteditable) only.');
   }
   if (params.action === 'type' && el.readOnly) throw new Error('Input is read-only.');
   state.refs.clear();
-  state.observer.disconnect();
   el.scrollIntoView({ block: 'center', inline: 'nearest' });
-  if (params.action === 'click') el.click();
-  else if (params.action === 'type') {
+  // SVG elements have no click() method.
+  if (params.action === 'click' && typeof el.click === 'function') el.click();
+  else if (params.action === 'click') el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  else if (params.action === 'type' && editing) {
+    // Replace the editor's contents through the browser's editing commands, so editors see normal input events.
+    el.focus();
+    getSelection().selectAllChildren(el);
+    if (!(params.text ? document.execCommand('insertText', false, params.text) : document.execCommand('delete'))) {
+      throw new Error('The editor did not accept the text. Take a fresh snapshot.');
+    }
+  } else if (params.action === 'type') {
     el.focus();
     const prototype = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(prototype, 'value').set.call(el, params.text);
