@@ -17,18 +17,20 @@ export function snapshotPage(epoch, id) {
   // Script click handlers on plain elements: where the pointer cursor starts, outside other controls.
   const pointer = el => getComputedStyle(el).cursor === 'pointer' && (!el.parentElement || getComputedStyle(el.parentElement).cursor !== 'pointer') && !el.closest(selector);
   const sensitive = el => el.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(el.getAttribute('autocomplete') || '');
+  // Like input values, an editor's text is never used as a label: not for the editor, an element in it, or one containing it.
+  // Kept with the references: an action rechecks the label that the approval prompt showed.
+  state.label = el => (el.isContentEditable || el.querySelector(editor) ? el.getAttribute('aria-label') || el.getAttribute('aria-placeholder') || el.getAttribute('data-placeholder') || el.getAttribute('title') || ''
+    : el.getAttribute('aria-label') || Array.from(el.labels || []).map(l => l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 160);
   for (const el of document.querySelectorAll('*')) {
     if (!(el.matches(controls) || host(el) || pointer(el))) continue;
     if (!visible(el) || el.closest('[inert]')) continue;
     // A label, or an element inside one, forwards its click to the label's control.
     const control = el.closest('label')?.control;
     if (sensitive(el) || (control && sensitive(control))) continue;
-    // Like input values, an editor's own text is never used as its label, also not by an element containing an editor.
-    const label = (host(el) || el.querySelector(editor) ? el.getAttribute('aria-label') || el.getAttribute('aria-placeholder') || el.getAttribute('data-placeholder') || el.getAttribute('title') || ''
-      : el.getAttribute('aria-label') || Array.from(el.labels || []).map(l => l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 160);
+    const label = state.label(el);
     const ref = `${id}:${elements.length + 1}`;
     state.refs.set(ref, { el, html: el.outerHTML, label });
-    elements.push({ ref, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.getAttribute('type') || undefined, label, disabled: el.matches(':disabled') });
+    elements.push({ ref, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.getAttribute('type') || undefined, label, disabled: el.matches(':disabled') || Boolean(control?.matches(':disabled')) });
     if (elements.length >= 200) break;
   }
   globalThis.__piBrowserConnect = state;
@@ -95,7 +97,7 @@ export function actOnPage(epoch, params) {
   }
   const entry = state.refs.get(params.ref);
   const el = entry?.el;
-  if (!el?.isConnected || el.getRootNode() !== document || el.outerHTML !== entry.html) throw new Error('Stale element reference. Take a fresh snapshot.');
+  if (!el?.isConnected || el.getRootNode() !== document || el.outerHTML !== entry.html || state.label(el) !== entry.label) throw new Error('Stale element reference. Take a fresh snapshot.');
   // A label, or an element inside one, forwards its click to the label's control: check that control too.
   const blocked = target => target.matches(':disabled') || target.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(target.getAttribute('autocomplete') || '');
   const control = el.closest('label')?.control;
