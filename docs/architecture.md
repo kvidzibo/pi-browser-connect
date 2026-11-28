@@ -48,7 +48,7 @@ Sockets use `$XDG_RUNTIME_DIR/pi-browser-connect-<uid>`, falling back to `/tmp/p
 - **Multiple hosts:** close other browser profiles using this extension. The client does not guess which profile you meant.
 - **Share disabled:** reopen the toolbar popup on a fully loaded HTTP(S) tab. Opening popup.html directly does not grant `activeTab`.
 - **Cannot attach / detached:** close DevTools or competing debugger extensions and share again.
-- **Stale snapshot / stale element reference:** take another snapshot; do not reuse references. A reference fails when its element changed or was removed, for example a control that re-renders constantly; act soon after the snapshot or use another control.
+- **Stale snapshot / stale element reference:** take another snapshot; do not reuse references. A reference fails after any interaction or navigation, and when its element changed or was removed, for example a control that re-renders constantly; act soon after the snapshot or use another control.
 - **Moved installation:** rerun setup; do not remove the package while its host is in use.
 
 To remove, disconnect in Pi and the popup, remove the browser extension and Pi package entry, then remove only the two package-managed setup files listed above. Existing browser tabs and login data are not deleted.

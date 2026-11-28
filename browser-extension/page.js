@@ -16,17 +16,19 @@ export function snapshotPage(epoch, id) {
   const host = el => el.matches(editor) && el.isContentEditable && !el.parentElement?.isContentEditable;
   // Script click handlers on plain elements: where the pointer cursor starts, outside other controls.
   const pointer = el => getComputedStyle(el).cursor === 'pointer' && (!el.parentElement || getComputedStyle(el.parentElement).cursor !== 'pointer') && !el.closest(selector);
+  const sensitive = el => el.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(el.getAttribute('autocomplete') || '');
   for (const el of document.querySelectorAll('*')) {
     if (!(el.matches(controls) || host(el) || pointer(el))) continue;
     if (!visible(el) || el.closest('[inert]')) continue;
-    if (el.matches('input[type="password"],input[type="file"],input[type="hidden"]')) continue;
-    if (/password|one-time-code|cc-/i.test(el.autocomplete || '')) continue;
-    // Like input values, an editor's own text is never used as its label.
-    const label = (host(el) ? el.getAttribute('aria-label') || el.getAttribute('aria-placeholder') || el.getAttribute('data-placeholder') || el.getAttribute('title') || ''
+    // A label, or an element inside one, forwards its click to the label's control.
+    const control = el.closest('label')?.control;
+    if (sensitive(el) || (control && sensitive(control))) continue;
+    // Like input values, an editor's own text is never used as its label, also not by an element containing an editor.
+    const label = (host(el) || el.querySelector(editor) ? el.getAttribute('aria-label') || el.getAttribute('aria-placeholder') || el.getAttribute('data-placeholder') || el.getAttribute('title') || ''
       : el.getAttribute('aria-label') || Array.from(el.labels || []).map(l => l.innerText).join(' ') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().slice(0, 160);
     const ref = `${id}:${elements.length + 1}`;
     state.refs.set(ref, { el, html: el.outerHTML, label });
-    elements.push({ ref, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.getAttribute('type') || undefined, label, disabled: Boolean(el.disabled) });
+    elements.push({ ref, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.getAttribute('type') || undefined, label, disabled: el.matches(':disabled') });
     if (elements.length >= 200) break;
   }
   globalThis.__piBrowserConnect = state;
@@ -93,8 +95,11 @@ export function actOnPage(epoch, params) {
   }
   const entry = state.refs.get(params.ref);
   const el = entry?.el;
-  if (!el?.isConnected || el.outerHTML !== entry.html) throw new Error('Stale element reference. Take a fresh snapshot.');
-  if (el.disabled || el.closest('[inert]') || el.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(el.autocomplete || '')) {
+  if (!el?.isConnected || el.getRootNode() !== document || el.outerHTML !== entry.html) throw new Error('Stale element reference. Take a fresh snapshot.');
+  // A label, or an element inside one, forwards its click to the label's control: check that control too.
+  const blocked = target => target.matches(':disabled') || target.matches('input[type="password"],input[type="file"],input[type="hidden"]') || /password|one-time-code|cc-/i.test(target.getAttribute('autocomplete') || '');
+  const control = el.closest('label')?.control;
+  if (el.closest('[inert]') || blocked(el) || (control && blocked(control))) {
     throw new Error('This control is disabled or sensitive. Use it manually.');
   }
   const rect = el.getBoundingClientRect();
@@ -106,7 +111,9 @@ export function actOnPage(epoch, params) {
   if (params.action === 'type' && el.readOnly) throw new Error('Input is read-only.');
   state.refs.clear();
   el.scrollIntoView({ block: 'center', inline: 'nearest' });
-  if (params.action === 'click') el.click();
+  // SVG elements have no click() method.
+  if (params.action === 'click' && typeof el.click === 'function') el.click();
+  else if (params.action === 'click') el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   else if (params.action === 'type' && editing) {
     // Replace the editor's contents through the browser's editing commands, so editors see normal input events.
     el.focus();

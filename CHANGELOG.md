@@ -2,7 +2,7 @@
 
 ## 0.10.0
 
-Pi can act on more pages. Pages that keep changing, such as ones with a ticking clock or live updates, no longer make every click fail with "Stale snapshot": a reference fails only when its own element changed or was removed. Pi can type into rich-text editors (`contenteditable`); typing replaces the editor's text, and snapshots label an editor by its name or placeholder, not its contents. Snapshots also list disclosure toggles, tabs, menu items, checkboxes, radios, switches, options, and elements with a click handler or pointer cursor, such as clickable cards. Reload the browser extension and share the tab again. Browser extension version: 0.9.0.
+Pi can act on more pages. Pages that keep changing, such as ones with a ticking clock or live updates, no longer make every click fail with "Stale snapshot": references are still consumed by each interaction and invalidated by navigation, but otherwise fail only when their own element changed or was removed. Pi can type into rich-text editors (`contenteditable`); typing replaces the editor's text, and snapshots label an editor by its name or placeholder, not its contents. Snapshots also list disclosure toggles, tabs, menu items, checkboxes, radios, switches, options, and elements with a click handler or pointer cursor, such as clickable cards. Reload the browser extension and share the tab again. Browser extension version: 0.9.0.
 
 ## 0.9.0
 
