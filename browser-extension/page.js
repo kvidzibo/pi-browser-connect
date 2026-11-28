@@ -98,9 +98,6 @@ export function actOnPage(epoch, params) {
     throw new Error('Typing supports ordinary text inputs and textareas only.');
   }
   if (params.action === 'type' && el.readOnly) throw new Error('Input is read-only.');
-  if (params.action === 'click' && el.closest('a[href]') && !['http:', 'https:'].includes(new URL(el.closest('a[href]').href).protocol)) {
-    throw new Error('Only HTTP(S) links can be followed.');
-  }
   state.refs.clear();
   state.observer.disconnect();
   el.scrollIntoView({ block: 'center', inline: 'nearest' });

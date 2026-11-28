@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+Pi can click any link, not only HTTP(S) ones. Script-driven links (`javascript:`) now work. Links to other programs, such as `mailto:`, are no longer refused: the browser decides whether to open them. Reload the browser extension and share the tab again. Browser extension version: 0.8.0.
+
 ## 0.8.0
 
 Add **Share in a separate window** to the browser popup. It moves the shared tab to its own window without a tab strip or toolbar, so links opened from other apps no longer land in—or raise—the window Pi is working in. Disconnect from the popup in any other window, or close the separate window. Reload the browser extension. Browser extension version: 0.7.0.
